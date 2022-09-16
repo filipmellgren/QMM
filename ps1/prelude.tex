@@ -1,0 +1,45 @@
+\documentclass[answers]{exam}
+
+\linespread{1.5}
+
+% PACKAGES
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{mathrsfs}
+\usepackage{natbib}
+\bibliographystyle{chicago}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage[flushleft]{threeparttable}
+\usepackage{comment}
+\usepackage{listings}
+\usepackage{graphicx}
+\usepackage[colorlinks=true,citecolor=blue]{hyperref}
+\usepackage{titling}
+\usepackage{gensymb}
+\usepackage{commath}
+\usepackage{ upgreek }
+
+% COMMANDS
+\newcommand{\subtitle}[1]{%
+  \posttitle{%
+    \par\end{center}
+    \begin{center}\large#1\end{center}
+    \vskip0.5em}%
+}
+\renewcommand{\P}{\mathbb{P}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Var}{\text{Var}}
+\newcommand{\Cov}{\text{Cov}}
+\newcommand{\Corr}{\text{Corr}}
+\DeclareMathOperator*{\plim}{plim}
+\DeclareMathOperator{\diag}{diag}
+
+\newtheorem{algorithm}{Algorithm}
+\newtheorem{definition}{Definition}
+\newtheorem{theorem}{Theorem}
