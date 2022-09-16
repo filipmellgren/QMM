@@ -15,6 +15,7 @@ import ipdb
 from numba import jit, njit
 from numba.typed import Dict
 import warnings
+import time
 
 PARAMS = {
 	"disc_fact": 0.993362,
@@ -29,7 +30,7 @@ PARAMS = {
 	"distr_tol": 1e-8,
 	"mc_tol": 1e-3,
 	"inc_grid_size": 3, 
-	"action_grid_size": 50, # TODO: set to 1000
+	"action_grid_size": 1000, # TODO: set to 1000
 }
 
 def floden_w(ar1):
@@ -210,11 +211,8 @@ def check_mc(params, policy, ergodic_distr):
 	return(diff)
 
 def solve_model(rate_guess, params):
-	#params = PARAMS
 	reward_matrix = get_util(calc_consumption(params, rate_guess), params)
-	#ipdb.set_trace()
 	V, policy_ix = solve_hh(rate_guess, reward_matrix, params) # Given rate, what would HH do? (all households behave same way, but end up in different states)
-	
 	policy_ix = policy_ix.astype(int)
 	policy = np.zeros(policy_ix.shape)
 	ix = -1
@@ -229,32 +227,39 @@ def solve_model(rate_guess, params):
 	#ipdb.set_trace()
 	net_asset_demand = check_mc(params, policy, ergodic_distr.T)
 	
-	return(net_asset_demand)
+	return(net_asset_demand, V, policy)
 
-eps = 0.0001
+st = time.time()
+#root_rate = sp.optimize.bisect(solve_model, -1, 1/PARAMS["disc_fact"]-1-0.15, xtol = PARAMS["mc_tol"], args = PARAMS)
+root_rate= sp.optimize.newton(lambda x: solve_model(x, PARAMS)[0], x0 = -0.5, x1 =  1/PARAMS["disc_fact"]-1-0.15, tol = PARAMS["mc_tol"])
+et = time.time()
+et - st
 
-solve_model(-1, PARAMS)
-solve_model(-0.2638405, PARAMS)
-solve_model(1/PARAMS["disc_fact"]-1-0.15, PARAMS)
-solve_model(-0.8, PARAMS)
-
-
-root_rate = sp.optimize.bisect(solve_model, -1, 1/PARAMS["disc_fact"]-1-0.15, xtol = PARAMS["mc_tol"], args = PARAMS)
-
-root_rate = sp.optimize.newton(solve_model, -0.26, fprime=None, args=(PARAMS,))
-
-rate_guess = root_rate
-x = np.zeros((2,3,4))
+net_assets, V, policy = solve_model(root_rate, PARAMS)
 
 
-solve_model(0.740443, PARAMS)
-x[0,0,:] = 4
-# TODO: Give TauxschenHussey correct params
-	# Implement Floden weights
+import pandas as pd
+df = pd.DataFrame(policy.T,columns = ["low", "medium", "high"])
+df["assets"] = PARAMS["action_set"][df.index]
+df = pd.melt(df, id_vars=["assets"], value_vars=["low", "medium", "high"], var_name='income_type', value_name='policy')
 
-x = np.array([[[1,2,3], [6,5,4]], [[8,10,13], [90,10,11]]])
-np.argmax(x, 2)
-np.max(x, 2)
-consumption = calc_consumption(params, rate_guess)
-# TODO numba
+df_income = {'income_type': ["low", "medium", "high"], 'income_value': income_states.tolist()[0]}
+df_income = pd.DataFrame(data=df_income)
+df = df.merge(df_income, left_on='income_type', right_on='income_type')
+df["consumption"] = df["income_value"] + df["assets"] * (1 + root_rate) - df["policy"]
+
+import plotly.express as px
+
+fig = px.line(df, x="assets", y="consumption", color = "income_type", title='Consumption policy', template = 'plotly_white', color_discrete_sequence=["#2FF3E0", "#F8D210", "#FA26A0"])
+
+fig.write_image('figures/consumption_by_income.png')
+
+
+# Asset size 50, newton and with numba: 11.37 seconds
+# Asset size 50, newton no numba: 667.63 seconds
+# Asset size 100, newton and with numba: 70.42  seconds
+
+
+
+
 
