@@ -246,3 +246,4 @@ np.argmax(x, 2)
 np.max(x, 2)
 consumption = calc_consumption(params, rate_guess)
 # TODO numba
+

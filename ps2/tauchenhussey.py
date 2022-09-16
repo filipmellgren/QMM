@@ -1,7 +1,6 @@
 import scipy.stats as st
 import scipy as sp
 
-
 def tauchenhussey(N,mu,rho,sigma, baseSigma):
 	""" 
 	Function tauchenhussey
