@@ -29,28 +29,29 @@ PARAMS = {
 	"distr_tol": 1e-8,
 	"mc_tol": 1e-3,
 	"inc_grid_size": 3, 
-	"action_grid_size": 100, # TODO: set to 1000
+	"action_grid_size": 50, # TODO: set to 1000
 }
 
+def floden_w(ar1):
+	'''
+	Implements Flodén weighting
+	'''
+	weight = 0.5 + ar1/4
+	return(weight)
+
+floden_sd = floden_w(PARAMS["ar1"]) * np.sqrt(PARAMS["shock_var"]) + (1- floden_w(PARAMS["ar1"]))* np.sqrt(PARAMS["shock_var"]/(1-PARAMS["ar1"]**2))
 
 income_states, transition_matrix = tauchenhussey(
 	PARAMS["inc_grid_size"], # number of nodes for Z
 	PARAMS["shock_mean"], # unconditional mean of process
 	PARAMS["ar1"], # rho
 	np.sqrt(PARAMS["shock_var"]), # std. dev. of epsilons
-	np.sqrt(PARAMS["shock_var"])) # std. dev. used to calculate Gaussian # TODO: update this based on Floden rule I think
+	floden_sd) # std. dev. used to calculate Gaussian # TODO: update this based on Floden rule I think
 # TODO 0.051
 PARAMS["income_states"] = np.copy(income_states[0])
 PARAMS["asset_states"] = np.logspace(start = 0, stop = np.log10(PARAMS['asset_max'] - PARAMS['borrow_c']+1), num = PARAMS['action_grid_size']) + PARAMS['borrow_c'] -1
 PARAMS["action_set"] = np.copy(PARAMS["asset_states"])
 PARAMS["transition_matrix"] = transition_matrix
-
-def floden_weight(ar1):
-	'''
-	Implements Flodén weighting
-	'''
-	weight = 0.5 + ar1/4
-	return(weight)
 
 def get_util(consumption, params):
 	'''
@@ -68,7 +69,7 @@ def calc_consumption(params, rate):
 	asset_states = params["asset_states"]
 	action_set = params["action_set"]
 	income, asset, saving = np.meshgrid(income_states, asset_states, action_set, sparse = True, indexing='ij')
-	consumption = income + asset * rate - saving
+	consumption = income + asset * (1+rate) - saving
 	return(consumption)
 
 def solve_hh(interest_rate, reward_matrix, params):
@@ -230,13 +231,23 @@ def solve_model(rate_guess, params):
 	
 	return(net_asset_demand)
 
-root_rate = sp.optimize.bisect(solve_model, -0.1, 3, args = PARAMS)
+eps = 0.0001
 
-root_rate = sp.optimize.newton(solve_model, 1, fprime=None, args=(PARAMS,))
+solve_model(-1, PARAMS)
+solve_model(-0.2638405, PARAMS)
+solve_model(1/PARAMS["disc_fact"]-1-0.15, PARAMS)
+solve_model(-0.8, PARAMS)
+
+
+root_rate = sp.optimize.bisect(solve_model, -1, 1/PARAMS["disc_fact"]-1-0.15, xtol = PARAMS["mc_tol"], args = PARAMS)
+
+root_rate = sp.optimize.newton(solve_model, -0.26, fprime=None, args=(PARAMS,))
 
 rate_guess = root_rate
 x = np.zeros((2,3,4))
 
+
+solve_model(0.740443, PARAMS)
 x[0,0,:] = 4
 # TODO: Give TauxschenHussey correct params
 	# Implement Floden weights
