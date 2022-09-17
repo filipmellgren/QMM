@@ -1,0 +1,10 @@
+# Fdb version 3
+["pdflatex"] 1662450354 "problems.tex" "problems.pdf" "problems" 1662450354
+  "/usr/local/texlive/2021/texmf-dist/web2c/texmf.cnf" 1616443989 39972 3d6bb4d9d719e93193fa020b58adf5d4 ""
+  "/usr/local/texlive/2021/texmf-var/web2c/pdftex/pdflatex.fmt" 1639604868 2724740 b70420f5d0562d8c8cb473eb379e7768 ""
+  "/usr/local/texlive/2021/texmf.cnf" 1616695596 577 4c1911a7228e554c6032256d3cf5567d ""
+  "problems.aux" 1662449977 8 a94a2480d3289e625eea47cd1b285758 ""
+  "problems.tex" 1662450354 503 d1fa0c966c37805b30edc473f20ee03b ""
+  (generated)
+  "problems.pdf"
+  "problems.log"

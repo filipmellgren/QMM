@@ -1,0 +1,96 @@
+\section{Problems}
+
+\begin{questions}
+\question{Recursive CE, two consumer types}
+\begin{solution}
+A recursive equilibrium is a set of functions:
+\begin{itemize}
+	\item $V_1$ which solves household 1's optimization problem
+		\begin{itemize}
+			\item $V_1(k_1, K) = max_{k_1 \in \mathcal{A}_1} u_1\left(w\left(K\right) + \left(1+r\left(K\right) - \delta \right) k_1 - k_1'\right) + \beta V_1\left(k_1', K'\right)$
+			\item The choice set $\mathcal{A}_1 := \left[ \underline{k_1}, w(K) + \left(1+r\left( K \right) - \delta \right) k_1 \right]$
+		\end{itemize}
+	\item $V_2$ which solves household 2's optimization problem
+		\begin{itemize}
+			\item $V_2(k_2, K) = max_{k_2 \in \mathcal{A}_2} u_2\left(w\left(K\right) + \left(1+r\left(K\right) - \delta \right) k_2 - k_2'\right) + \beta V_2\left(k_2', K'\right)$
+			\item The choice set $\mathcal{A}_2 := \left[ \underline{k_2}, w(K) + \left(1+r\left( K \right) - \delta \right) k_2 \right]$
+		\end{itemize}
+	\item $g_1$, household 1's capital policy which solves $V_1$, the argmaxing $k_1$.
+	\item $g_2$, household 2's capital policy which solves $V_2$, the argmaxing $k_2$.
+	\item $G$, a motion equation for aggregate capital $K$.
+	\item $w$, a function for wages, given aggregate $K$. In a competitive equilibrium, this follows: 
+		\begin{itemize}
+			\item $w(K) = F_L\left( K, 1\right) \quad \forall K$
+		\end{itemize}
+	\item $r$, a function for rents, given aggregate $K$. In a competitive equilibrium, this follows: 
+		\begin{itemize}
+			\item $r\left( K\right) = F_K\left(K, 1\right), \quad \forall K$
+		\end{itemize}
+\end{itemize}
+
+With two different consumers of equal mass, we have that $K = k_1/2 + k_2/2$ and therefore, a consistency requirement is that:
+
+\begin{itemize}
+	\item $G(K) = g_1(k_1, K)/2 + g_2(k_2, K)/2$
+\end{itemize}
+
+
+Note that in this economy, there are three state variables, $k_1$ which is directly affected by household of type 1, $k_2$ which is directly affected by households of type 2, and $K$, which both households take as given when they make their choices, and don't consider effects on the motion of this as they make their decisions. The idea is that they are small and cannot individually move it.
+\end{solution}
+
+\question{Recursive CE with valued leisure}
+\begin{solution}
+Valued leisure enters into the agent's utility function in some arbitrary way. We can represent the adapted utility function as $u\left(c, l\right)$. Clearly, the agent now needs to also choose how much to work which affects both income and leisure. Previously, this was a non-issue. With $l$ denoting leisure, time spent at work is $1-l$. The new value function becomes:
+
+\begin{itemize}
+	\item $V(k, K) = max_{k \in \mathcal{A}, l \in [0,1]} u\left( \left(1-l\right) w\left(K\right) + \left(1+r\left(K\right) - \delta \right) k - k', l\right) + \beta V\left(k', l', K'\right)$
+	\item $g$, the household's policy function which solves $V$, the pair of argmaxing $k'$ and $l$ given $k, K$.
+	\item $w$, a function for wages, given aggregate $K$. In a competitive equilibrium, this follows: 
+	\begin{itemize}
+		\item $w(K, l) = F_L\left( K, 1-l\right) \quad \forall K, l$
+	\end{itemize}
+\item $r$, a function for rents, given aggregate $K$. In a competitive equilibrium, this follows: 
+	\begin{itemize}
+		\item $r\left( K, l\right) = F_K\left(K, 1-l\right), \quad \forall K, l$
+	\end{itemize}
+\end{itemize}
+The consistency function for capital: $G(K) = g(K, K)$. Then there also needs to be a consitency function for labor: $H(L) = h(L)$.
+\end{solution}
+
+\question{3a. Interpret what the value functions mean}
+\begin{solution}
+	$W(k)$ is the value function the agent assumes when making its decision and therefore what is maximized by choosing a value of capital tomorrow. It views the future as if all periods further into the future than two periods ahead will only get discounted at rate $\delta$, which is not true and the agent knows this when making its decisions.
+
+	$g(k)$ is the policy function mapping values of capital today to values of capital tomorrow. Again, this assumes the instant utility takes the same form as for the value function $W$.
+
+	$V(k)$ is the value function with constant discounting. 
+
+\end{solution}
+
+\question{3b. Deriving the generalized Euler equation}
+\begin{solution}
+
+In the derivation below, I sometimes let $f(k) - g(k) := c(k)$ to save typing.
+
+	\begin{align}
+		\text{First order condition gives: } u'\left(c(k)\right) =&  \beta \delta V'\left(g\left(k\right)\right)\\
+		\text{Another expression with RHS: } V'(k)  =& u'\left(c(k)\right)\left(f'(k) - g'(k)\right) + \delta V'(g(k))g'(k) \\
+		\beta \delta V'(k)  =& \beta \delta \left( u'\left(c(k) \right) \left(f'(k) - g'(k)\right)\right) + \delta g'(k) RHS \\
+		\text{Solve:  }RHS  =&  \frac{\beta}{g'(k)}\left( V'(k) - \left(u'\left(c(k)\right)\left(f'(k) - g'(k)\right)\right) \right) \\
+		\text{Plug back into FOC: } u'\left(c(k)\right)  =& \frac{\beta}{g'(k)} \left( V'(k) - \left(u'\left(c(k)\right)\left(f'(k) - g'(k)\right)\right) \right) \\
+		\text{Solve for V'(k): }V'(k)  = & u'\left(c(k)\right)  \left( f'(g(k)) + g'\left( 1/\beta - 1\right) \right) \\
+		\text{Roll forward one period: } V'(g(k)) =&  u'\left(f\left(g(k)\right)- g\left(g(k) \right)\right)  \left( f'(g(g(k))) + g'\left( 1/\beta - 1\right) \right) \\
+		\text{Plug into first order condition: } u'\left(c(k)\right) =& \beta \delta u'\left(f\left(g(k)\right)- g\left(g(k) \right)\right)  \left( f'(g(g(k))) + g'\left( 1/\beta - 1\right) \right)
+	\end{align}
+
+
+The interpretation of the Euler equation relates marginal utility today with discounted marginal utility tomorrow. In the case $\beta \neq 1$, we find a positive dependence on $g'(g(k))$, this is the change in optimal capital two periods ahead with respect to optimal capital in the next period. Intuitively, it makes sense that this term enters, considering that the future two periods ahead is of a different nature than the future one period ahead. It tells us that in the (today) optimum, marginal utility today must increase as much as two-period ahead future levels of optimal capital increases times $1-\beta$ as we select next period capital $g(k)$. So today, we put relatively high weight on two-periods ahead relative to how we will value the period tomorrow. It is as if the decision maker today takes into account that it will undervalue the two-period ahead time tomorrow, compared to today.
+
+\end{solution}
+
+
+\end{questions}
+
+
+
+
