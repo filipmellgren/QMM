@@ -159,29 +159,30 @@ def solve_distr(policy, params):
 
 	return(distr_upd)
 
-#@jit(nopython=True, fastmath=True)#, parallel = True) # See https://numba.pydata.org/numba-doc/latest/user/parallel.html 
+@jit(nopython=True, fastmath=True)#, parallel = True) # See https://numba.pydata.org/numba-doc/latest/user/parallel.html 
 def value_function_iterate(V, transition_matrix, reward_matrix, income_states, asset_states, actions,  disc_factor, tol):
 	# V here is just the states
 	V_new = np.copy(V)
 	POL = np.zeros(V_new.shape, dtype=np.int16)
 	diff = 100.0
-	iteration = 0
+	
 	while diff > tol:
-		iteration += 1			
 		diff = 0.0
+
 		for inc_ix in prange(income_states.shape[0]):
 			P = transition_matrix[inc_ix, :]
 			exp_val = np.dot(P, V)
-
+			V = np.copy(V_new)
 			for ass_ix in range(asset_states.shape[0]):
 				v = V[inc_ix, ass_ix]
-				pol = np.argmax(reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val)
-				v_new =  (reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val)[pol]
-
+				next_possible_V = reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val
+				pol = np.argmax(next_possible_V)
+				v_new = next_possible_V[pol]
 				POL[inc_ix, ass_ix] = pol
 				V_new[inc_ix, ass_ix] = v_new
-				V = np.copy(V_new)
+				#V = np.copy(V_new)
 				diff = max(diff, abs(v - v_new))
+
 	return(V, POL)
 
 #@jit(nopython = True, fastmath=True)
@@ -259,7 +260,7 @@ fig.write_image('figures/consumption_by_income.png')
 
 # Asset size 50, newton and with numba: 11.37 seconds, uodated code: 4.19
 # Asset size 50, newton no numba: 667.63 seconds
-# Asset size 100, newton and with numba: 70.42  seconds, updated code: 20.35 seconds 
+# Asset size 100, newton and with numba: 70.42  seconds, updated code: 20.35 seconds, 2.28
 # Asset size 200, newton and with numba: updated code: 146.42 seconds 
 
 
