@@ -97,7 +97,7 @@ def solve_hh(interest_rate, reward_matrix, params):
 	arbitrary_slice_index = 0
 	#state_space = np.copy(V[:,:,arbitrary_slice_index])
 	#ipdb.set_trace() # HERE
-	V = value_function_iterate(V, transition_matrix, reward_matrix, params["income_states"], params["asset_states"], params["action_set"], params["disc_fact"], params["value_func_tol"])
+	V = value_function_iterate(V[:,:, arbitrary_slice_index], transition_matrix, reward_matrix, params["income_states"], params["asset_states"], params["action_set"], params["disc_fact"], params["value_func_tol"])
 	return(V)
 
 	iteration = 0
@@ -159,50 +159,35 @@ def solve_distr(policy, params):
 
 	return(distr_upd)
 
-@jit(nopython=True, fastmath=True)#, parallel = True) # See https://numba.pydata.org/numba-doc/latest/user/parallel.html 
+#@jit(nopython=True, fastmath=True)#, parallel = True) # See https://numba.pydata.org/numba-doc/latest/user/parallel.html 
 def value_function_iterate(V, transition_matrix, reward_matrix, income_states, asset_states, actions,  disc_factor, tol):
-	#ipdb.set_trace()
+	# V here is just the states
 	V_new = np.copy(V)
-	POL = np.zeros(V_new[:,:,0].shape, dtype=np.int16)
+	POL = np.zeros(V_new.shape, dtype=np.int16)
 	diff = 100.0
 	iteration = 0
 	while diff > tol:
 		iteration += 1			
-		#inc_ix = -1
 		diff = 0.0
 		for inc_ix in prange(income_states.shape[0]):
-			#inc_ix += 1
-			#ass_ix = -1
-			for ass_ix in prange(asset_states.shape[0]):
-				#ass_ix += 1
-				exp_val = np.zeros(actions.shape)
-				#v = np.max(V[inc_ix, ass_ix,:])
-				
-				v = V[inc_ix, ass_ix, POL[inc_ix, ass_ix]]
-				act_ix = -1
-				#for act in actions: # Find expected value of each action
-				#	act_ix += 1
-				#	inc_ix2 = -1
-				#	for i2 in income_states:
-				#		inc_ix2 += 1
-				#		exp_val[act_ix] += transition_matrix[inc_ix, inc_ix2] * V[inc_ix2, act_ix, POL[inc_ix2, act_ix]]
-				
-				exp_val = find_expval(np.zeros(actions.shape), V, POL, actions, income_states, transition_matrix, inc_ix)
+			P = transition_matrix[inc_ix, :]
+			exp_val = np.dot(P, V)
+
+			for ass_ix in range(asset_states.shape[0]):
+				v = V[inc_ix, ass_ix]
 				pol = np.argmax(reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val)
 				v_new =  (reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val)[pol]
 
-				#v_new = np.max(reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val) # 1 by 
-				#pol = np.argmax(reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val)
 				POL[inc_ix, ass_ix] = pol
-				V_new[inc_ix, ass_ix,:] = v_new
+				V_new[inc_ix, ass_ix] = v_new
 				V = np.copy(V_new)
-				diff = np.maximum(diff, np.abs(v - v_new))
+				diff = max(diff, abs(v - v_new))
 	return(V, POL)
 
-@jit(nopython = True, fastmath=True)
+#@jit(nopython = True, fastmath=True)
 def find_expval(exp_val, V, POL, actions, income_states, transition_matrix, inc_ix):
 	for act_ix in prange(actions.shape[0]): #actions: # Find expected value of each action
-		for inc_ix2 in prange(income_states.shape[0]):#income_states:
+		for inc_ix2 in range(income_states.shape[0]):#income_states:
 			exp_val[act_ix] += transition_matrix[inc_ix, inc_ix2] * V[inc_ix2, act_ix, POL[inc_ix2, act_ix]]
 	return(exp_val)
 
@@ -213,7 +198,7 @@ def check_mc(params, policy, ergodic_distr):
 	Multiply mass with asset demand for people in that state
 	Aggregate demand and compare with net assets
 	'''
-	#ipdb.set_trace()
+	#ipdb.set_trace()transition_matrix[1, :]
 	asset_demand = np.sum(ergodic_distr * policy)
 	diff = asset_demand - params["asset_net"] 
 	return(diff)
@@ -247,6 +232,10 @@ et = time.time()
 et - st
 net_assets, V, policy = solve_model(root_rate, PARAMS)
 print(root_rate)
+print(et - st)
+
+# Search for optimal r on grid 100 or similar
+# run again with grid 1000, but narrow it down to not include the highest asset levels if these are never usded
 
 with open('root_rate.txt', 'w') as f:
   f.write('%d' % root_rate)
@@ -268,10 +257,13 @@ fig = px.line(df, x="assets", y="consumption", color = "income_type", title='Con
 fig.write_image('figures/consumption_by_income.png')
 
 
-# Asset size 50, newton and with numba: 11.37 seconds
+# Asset size 50, newton and with numba: 11.37 seconds, uodated code: 4.19
 # Asset size 50, newton no numba: 667.63 seconds
 # Asset size 100, newton and with numba: 70.42  seconds, updated code: 20.35 seconds 
+# Asset size 200, newton and with numba: updated code: 146.42 seconds 
 
+
+# INterest on money is zero, therefore, the price of money in terms of good changes in line with return on the asset
 
 
 
