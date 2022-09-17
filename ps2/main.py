@@ -30,7 +30,7 @@ PARAMS = {
 	"distr_tol": 1e-8,
 	"mc_tol": 1e-3,
 	"inc_grid_size": 3, 
-	"action_grid_size": 100, # TODO: set to 1000
+	"action_grid_size": 400, # TODO: set to 1000
 }
 
 def floden_w(ar1):
@@ -159,7 +159,8 @@ def solve_distr(policy, params):
 
 	return(distr_upd)
 
-@jit(nopython=True, fastmath=True)#, parallel = True) # See https://numba.pydata.org/numba-doc/latest/user/parallel.html 
+#@jit(nopython=True, fastmath=True, parallel = True) # See https://numba.pydata.org/numba-doc/latest/user/parallel.html 
+@jit(nopython=True, fastmath=True)
 def value_function_iterate(V, transition_matrix, reward_matrix, income_states, asset_states, actions,  disc_factor, tol):
 	# V here is just the states
 	V_new = np.copy(V)
@@ -169,18 +170,17 @@ def value_function_iterate(V, transition_matrix, reward_matrix, income_states, a
 	while diff > tol:
 		diff = 0.0
 
-		for inc_ix in prange(income_states.shape[0]):
+		for inc_ix in range(income_states.shape[0]):
 			P = transition_matrix[inc_ix, :]
 			exp_val = np.dot(P, V)
 			V = np.copy(V_new)
-			for ass_ix in range(asset_states.shape[0]):
+			for ass_ix in prange(asset_states.shape[0]):
 				v = V[inc_ix, ass_ix]
 				next_possible_V = reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val
 				pol = np.argmax(next_possible_V)
 				v_new = next_possible_V[pol]
 				POL[inc_ix, ass_ix] = pol
 				V_new[inc_ix, ass_ix] = v_new
-				#V = np.copy(V_new)
 				diff = max(diff, abs(v - v_new))
 
 	return(V, POL)
@@ -262,6 +262,8 @@ fig.write_image('figures/consumption_by_income.png')
 # Asset size 50, newton no numba: 667.63 seconds
 # Asset size 100, newton and with numba: 70.42  seconds, updated code: 20.35 seconds, 2.28
 # Asset size 200, newton and with numba: updated code: 146.42 seconds 
+# Asset size 400, newton, numba, parallel actions: 5.033
+# Asset size 400, newton, numba, sequential actions: 31.16
 
 
 # INterest on money is zero, therefore, the price of money in terms of good changes in line with return on the asset
