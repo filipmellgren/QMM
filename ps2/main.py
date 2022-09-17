@@ -30,7 +30,7 @@ PARAMS = {
 	"distr_tol": 1e-8,
 	"mc_tol": 1e-3,
 	"inc_grid_size": 3, 
-	"action_grid_size": 1000, # TODO: set to 1000
+	"action_grid_size": 100, # TODO: set to 1000
 }
 
 def floden_w(ar1):
@@ -99,21 +99,25 @@ def solve_hh(interest_rate, reward_matrix, params):
 	#ipdb.set_trace() # HERE
 	V = value_function_iterate(V, transition_matrix, reward_matrix, params["income_states"], params["asset_states"], params["action_set"], params["disc_fact"], params["value_func_tol"])
 	return(V)
-	ipdb.set_trace()
+
 	iteration = 0
 	#ipdb.set_trace()
-	it = np.nditer(V, flags=['multi_index'])
-	diff = 100
-	while diff > params["value_func_tol"]:
-		iteration = iteration + 1
+	it = np.nditer(V[:,:,0], flags=['multi_index'])
+	diff = 100.0
+	tol = params["value_func_tol"]
+	trasition_matrix = params["transition_matrix"]
+	while diff > tol:
+		iteration += 1
 		diff = 0.0
 		#ipdb.set_trace()
 		for s in it:
-			exp_val_next = params["transition_matrix"][it.multi_index[0]] @ np.amax(V, 2) # function of action
+			v = np.max(V[it.multi_index[0], it.multi_index[1],:])
 
-			value_now = np.amax(reward_matrix[it.multi_index] + params["disc_fact"] * exp_val_next)
+			exp_val_next = transition_matrix[it.multi_index[0]] @ np.amax(V, 2) # function of action
 
-			V_new[it.multi_index] = value_now
+			v_new = np.amax(reward_matrix[it.multi_index[0],: ] + params["disc_fact"] * exp_val_next) # a matrix
+
+			V_new[it.multi_index] = v_new
 			diff = max(diff, np.abs(V_new[it.multi_index]- V[it.multi_index]))
 			V = np.copy(V_new)
 	return(V)
@@ -159,7 +163,7 @@ def solve_distr(policy, params):
 def value_function_iterate(V, transition_matrix, reward_matrix, income_states, asset_states, actions,  disc_factor, tol):
 	#ipdb.set_trace()
 	V_new = np.copy(V)
-	POL = np.zeros(V_new[:,:,0].shape)
+	POL = np.zeros(V_new[:,:,0].shape, dtype=np.int16)
 	diff = 100.0
 	iteration = 0
 	while diff > tol:
@@ -172,16 +176,24 @@ def value_function_iterate(V, transition_matrix, reward_matrix, income_states, a
 			for a in asset_states:
 				ass_ix += 1
 				exp_val = np.zeros(actions.shape)
-				v = np.max(V[inc_ix, ass_ix,:])
+				#v = np.max(V[inc_ix, ass_ix,:])
+				
+				v = V[inc_ix, ass_ix, POL[inc_ix, ass_ix]]
 				act_ix = -1
 				for act in actions: # Find expected value of each action
 					act_ix += 1
 					inc_ix2 = -1
 					for i2 in income_states:
 						inc_ix2 += 1
-						exp_val[act_ix] += transition_matrix[inc_ix, inc_ix2] * np.max(V[inc_ix2, act_ix, :])
-				v_new = np.max(reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val) # 1 by 
+						#exp_val[act_ix] += transition_matrix[inc_ix, inc_ix2] * np.max(V[inc_ix2, act_ix, :])
+						#ipdb.set_trace()
+						exp_val[act_ix] += transition_matrix[inc_ix, inc_ix2] * V[inc_ix2, act_ix, POL[inc_ix2, act_ix]]#np.max(V[inc_ix2, act_ix, :])
+				
 				pol = np.argmax(reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val)
+				v_new =  (reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val)[pol]
+
+				#v_new = np.max(reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val) # 1 by 
+				#pol = np.argmax(reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val)
 				POL[inc_ix, ass_ix] = pol
 				#if v_new < -10000:
 		#		ipdb.set_trace()
@@ -230,13 +242,18 @@ def solve_model(rate_guess, params):
 	return(net_asset_demand, V, policy)
 
 st = time.time()
+# TODO: solve with 100
+# search space close to previous solution with increases grid. Limit number of Newton operations based on time it takes for one attempt
 #root_rate = sp.optimize.bisect(solve_model, -1, 1/PARAMS["disc_fact"]-1-0.15, xtol = PARAMS["mc_tol"], args = PARAMS)
 root_rate= sp.optimize.newton(lambda x: solve_model(x, PARAMS)[0], x0 = -0.5, x1 =  1/PARAMS["disc_fact"]-1-0.15, tol = PARAMS["mc_tol"])
+net_assets, V, policy = solve_model(root_rate, PARAMS)
 et = time.time()
 et - st
 
 net_assets, V, policy = solve_model(root_rate, PARAMS)
-
+print(root_rate)
+with open('root_rate.txt', 'w') as f:
+  f.write('%d' % root_rate)
 
 import pandas as pd
 df = pd.DataFrame(policy.T,columns = ["low", "medium", "high"])
@@ -247,7 +264,7 @@ df_income = {'income_type': ["low", "medium", "high"], 'income_value': income_st
 df_income = pd.DataFrame(data=df_income)
 df = df.merge(df_income, left_on='income_type', right_on='income_type')
 df["consumption"] = df["income_value"] + df["assets"] * (1 + root_rate) - df["policy"]
-
+df.to_csv("value_function.csv")
 import plotly.express as px
 
 fig = px.line(df, x="assets", y="consumption", color = "income_type", title='Consumption policy', template = 'plotly_white', color_discrete_sequence=["#2FF3E0", "#F8D210", "#FA26A0"])
@@ -257,7 +274,8 @@ fig.write_image('figures/consumption_by_income.png')
 
 # Asset size 50, newton and with numba: 11.37 seconds
 # Asset size 50, newton no numba: 667.63 seconds
-# Asset size 100, newton and with numba: 70.42  seconds
+# Asset size 100, newton and with numba: 70.42  seconds, updated code: 20.35 seconds 
+
 
 
 
