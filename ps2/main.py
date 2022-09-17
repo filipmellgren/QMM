@@ -12,7 +12,7 @@ import scipy as sp
 from tauchenhussey import tauchenhussey
 import itertools
 import ipdb
-from numba import jit, njit
+from numba import jit, njit, prange
 from numba.typed import Dict
 import warnings
 import time
@@ -158,8 +158,8 @@ def solve_distr(policy, params):
 	assert np.all(distr_guess >= 0), "Negative values in distribution"
 
 	return(distr_upd)
- # parallel = True, fastmath = True
-@jit(nopython=True, fastmath=True) # See https://numba.pydata.org/numba-doc/latest/user/parallel.html # TODO: make of type prange()
+
+@jit(nopython=True, fastmath=True)#, parallel = True) # See https://numba.pydata.org/numba-doc/latest/user/parallel.html 
 def value_function_iterate(V, transition_matrix, reward_matrix, income_states, asset_states, actions,  disc_factor, tol):
 	#ipdb.set_trace()
 	V_new = np.copy(V)
@@ -168,47 +168,43 @@ def value_function_iterate(V, transition_matrix, reward_matrix, income_states, a
 	iteration = 0
 	while diff > tol:
 		iteration += 1			
-		inc_ix = -1
+		#inc_ix = -1
 		diff = 0.0
-		for i in income_states:
-			inc_ix += 1
-			ass_ix = -1
-			for a in asset_states:
-				ass_ix += 1
+		for inc_ix in prange(income_states.shape[0]):
+			#inc_ix += 1
+			#ass_ix = -1
+			for ass_ix in prange(asset_states.shape[0]):
+				#ass_ix += 1
 				exp_val = np.zeros(actions.shape)
 				#v = np.max(V[inc_ix, ass_ix,:])
 				
 				v = V[inc_ix, ass_ix, POL[inc_ix, ass_ix]]
 				act_ix = -1
-				for act in actions: # Find expected value of each action
-					act_ix += 1
-					inc_ix2 = -1
-					for i2 in income_states:
-						inc_ix2 += 1
-						#exp_val[act_ix] += transition_matrix[inc_ix, inc_ix2] * np.max(V[inc_ix2, act_ix, :])
-						#ipdb.set_trace()
-						exp_val[act_ix] += transition_matrix[inc_ix, inc_ix2] * V[inc_ix2, act_ix, POL[inc_ix2, act_ix]]#np.max(V[inc_ix2, act_ix, :])
+				#for act in actions: # Find expected value of each action
+				#	act_ix += 1
+				#	inc_ix2 = -1
+				#	for i2 in income_states:
+				#		inc_ix2 += 1
+				#		exp_val[act_ix] += transition_matrix[inc_ix, inc_ix2] * V[inc_ix2, act_ix, POL[inc_ix2, act_ix]]
 				
+				exp_val = find_expval(np.zeros(actions.shape), V, POL, actions, income_states, transition_matrix, inc_ix)
 				pol = np.argmax(reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val)
 				v_new =  (reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val)[pol]
 
 				#v_new = np.max(reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val) # 1 by 
 				#pol = np.argmax(reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val)
 				POL[inc_ix, ass_ix] = pol
-				#if v_new < -10000:
-		#		ipdb.set_trace()
-				#	ipdb.set_trace()
-				#	pass
-				
-				#V_new[inc_ix, ass_ix,act_ix] = v_new
 				V_new[inc_ix, ass_ix,:] = v_new
 				V = np.copy(V_new)
-				diff = max(diff, abs(v - v_new))
-			#	print(diff)
-				#print(diff)
-		#	diff = np.max(diff, np.abs(V_new[inc_ix, ass_ix] - V[inc_ix, ass_ix]))
-				
+				diff = np.maximum(diff, np.abs(v - v_new))
 	return(V, POL)
+
+@jit(nopython = True, fastmath=True)
+def find_expval(exp_val, V, POL, actions, income_states, transition_matrix, inc_ix):
+	for act_ix in prange(actions.shape[0]): #actions: # Find expected value of each action
+		for inc_ix2 in prange(income_states.shape[0]):#income_states:
+			exp_val[act_ix] += transition_matrix[inc_ix, inc_ix2] * V[inc_ix2, act_ix, POL[inc_ix2, act_ix]]
+	return(exp_val)
 
 def check_mc(params, policy, ergodic_distr):
 	'''
@@ -249,9 +245,9 @@ root_rate= sp.optimize.newton(lambda x: solve_model(x, PARAMS)[0], x0 = -0.5, x1
 net_assets, V, policy = solve_model(root_rate, PARAMS)
 et = time.time()
 et - st
-
 net_assets, V, policy = solve_model(root_rate, PARAMS)
 print(root_rate)
+
 with open('root_rate.txt', 'w') as f:
   f.write('%d' % root_rate)
 
