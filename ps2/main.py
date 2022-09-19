@@ -9,7 +9,10 @@
 import numpy as np
 import scipy.stats as st
 import scipy as sp
-from tauchenhussey import tauchenhussey
+import sys
+sys.path.append('../')
+from src.tauchenhussey import tauchenhussey
+from src.vfi_funcs import value_function_iterate
 import itertools
 import ipdb
 from numba import jit, njit, prange
@@ -114,7 +117,7 @@ def solve_hh(interest_rate, reward_matrix, params):
 		params["action_grid_size"]), -100.0)
 		
 	arbitrary_slice_index = 0
-	V, pol = value_function_iterate(V[:,:, arbitrary_slice_index], transition_matrix, reward_matrix, params["income_states"], params["asset_states"], params["action_set"], params["disc_fact"], params["value_func_tol"])
+	V, pol = value_function_iterate(V[:,:, arbitrary_slice_index], transition_matrix, reward_matrix, params["income_states"], params["asset_states"], params["disc_fact"], params["value_func_tol"])
 	return(V, pol)
 
 @jit(nopython=True, parallel = True)
@@ -252,31 +255,6 @@ def solve_distr_by_eigenvector(policy, policy_ix, params):
 	# CHECK is real, sum to one, all nonnegative
 	#distr = distr/sum(distr)
 	return(distr)
-
-@jit(nopython=True, fastmath=True, parallel = True)
-def value_function_iterate(V, transition_matrix, reward_matrix, income_states, asset_states, actions,  disc_factor, tol):
-	# V here is just the states
-	V_new = np.copy(V)
-	POL = np.zeros(V_new.shape, dtype=np.int16)
-	diff = 100.0
-	
-	while diff > tol:
-		diff = 0.0
-
-		for inc_ix in range(income_states.shape[0]):
-			P = transition_matrix[inc_ix, :]
-			V = np.copy(V_new)
-			exp_val = np.dot(P, V)
-			for ass_ix in prange(asset_states.shape[0]):
-				v = V[inc_ix, ass_ix]
-				V_new_cands = reward_matrix[inc_ix, ass_ix,:] + disc_factor * exp_val
-				pol = np.argmax(V_new_cands)
-				POL[inc_ix, ass_ix] = pol
-				v_new = V_new_cands[pol]
-				V_new[inc_ix, ass_ix] = v_new
-				diff = max(diff, abs(v - v_new))
-
-	return(V, POL)
 
 def check_mc(params, policy, ergodic_distr):
 	'''
