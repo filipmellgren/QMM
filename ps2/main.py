@@ -12,7 +12,7 @@ import scipy as sp
 import sys
 sys.path.append('../')
 from src.tauchenhussey import tauchenhussey
-from src.vfi_funcs import value_function_iterate
+from src.vfi_funcs import get_util, calc_consumption
 import itertools
 import ipdb
 from numba import jit, njit, prange

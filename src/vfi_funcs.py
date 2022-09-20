@@ -3,6 +3,8 @@
 import numpy as np
 from numba import jit, njit, prange
 from numba.typed import Dict
+from scipy import optimize
+import math
 
 @jit(nopython=True, fastmath=True, parallel = True)
 def value_function_iterate(V, transition_matrix, reward_matrix, stoch_states, det_states,  disc_factor, tol = 1e-6):
@@ -57,4 +59,3 @@ def value_function_iterate(V, transition_matrix, reward_matrix, stoch_states, de
 				diff = max(diff, abs(v - v_new))
 
 	return(V, POL)
-
