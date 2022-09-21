@@ -13,6 +13,7 @@ import time
 import pandas as pd
 import plotly.express as px
 import scipy as sp
+import pandas as pd
 
 PARAMS = {
 	"disc_fact": 0.993362,
@@ -77,18 +78,6 @@ def find_ss_rate(borrow_constr, V_guess, params):
 	
 	return(root_rate)
 
-##### test ground ###################
-V_guess = np.full((
-			PARAMS["inc_grid_size"],
-			PARAMS["action_grid_size"], 
-			PARAMS["action_grid_size"]), -100.0)
-rate_pre = find_ss_rate(np.repeat(-3,2), V_guess, PARAMS)
-rate_post = find_ss_rate(np.repeat(-6,2), V_guess, PARAMS)
-#####################################
-
-# TODO: next, check that the below works. 
-# TODO: note that asset grid is no longer, necessarily, the same as the action grid. 
-
 def	solve_transition(rate_guess, t, V_post, params):
 	''' Guess an interest rate transition vector, and output net asset demand
 
@@ -118,7 +107,11 @@ def	solve_transition(rate_guess, t, V_post, params):
 	return(net_asset_demand)
 	#return(sum_of_squares, net_asset_demand, pol_ix, distr)
 
-def find_transition_eq(params, rate_pre, rate_post, V_post):
+def find_transition_eq(params, rate_pre = None, rate_post = None, V_post = None):
+	''' Find path of the interest rate between the two steady states.
+
+	Can take as input pre and post ss interest rates. Default is to compute them.
+	'''
 	V_guess = np.full((
 			params["inc_grid_size"],
 			params["action_grid_size"], 
@@ -130,13 +123,6 @@ def find_transition_eq(params, rate_pre, rate_post, V_post):
 	if V_post is None:
 		V_post = solve_ss(rate_post, np.repeat(params["policy_bc"][-1],2), V_guess, params)[1]
 	
-	#action_axis = 2
-	#pol_ix = [] #np.empty(params["T"]-1)
-	#distr = []  #np.empty(pol_ix.shape)
-	#net_asset_demand = [] #np.empty(pol_ix.shape)
-	
-	#income_states = params["income_states"]
-
 	rate_next = rate_post
 	rate_path = []
 	for t in reversed(range(1, params["T"]-1)):
@@ -151,13 +137,19 @@ def find_transition_eq(params, rate_pre, rate_post, V_post):
 
 	return(rate_path)
 
-rate_path = find_transition_eq(PARAMS, rate_pre, rate_post, None)
-net_asset_demand, pol, distr = solve_transition(rate_path, rate_post, PARAMS):
+rate_path = find_transition_eq(PARAMS)
 
+# ANALYSIS ####################################################
 
-	a = np.array([[1,2],[3, 4]])
-	a[None, 0]
-	
+df = pd.DataFrame(rate_path, columns = ["rate"])
+df["time"] = abs(df.index - PARAMS["T"])-1
+
+fig = px.line(df, x="time", y="rate", 
+	title='Interest rate path',
+	template = 'plotly_white')
+fig.add_vline(x=len(PARAMS["policy_bc"])-1, line_width=2, line_dash="dash")
+fig.show()
+fig.write_image('figures/rate_path.png')
 
 # plot the interest rate path
 
