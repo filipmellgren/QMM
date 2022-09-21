@@ -19,11 +19,10 @@ def iterate_distr(distr_guess, policy_ix, transition_matrix, inc_size, asset_siz
 		distr_guess = distr_guess/np.sum(distr_guess) # TODO: this is super hacky! It is needed bc I think the distribution starts to drift away from 1. 
 	return(distr_guess)
 
-def solve_distr(policy, policy_ix, params):
+def solve_distr(policy_ix, params):
 	'''
 	Given interest rate, houesehold policies, and exogenous income process, what distribution do we end up with?
 	'''
-	policy = policy.T
 	policy_ix = policy_ix.T
 	policy_ix = policy_ix.astype(int) # Want to be sure of this when using in Numba
 	distr_guess = np.full((
@@ -61,3 +60,15 @@ def check_mc(params, policy, ergodic_distr):
 	asset_demand = np.sum(ergodic_distr * policy)
 	diff = asset_demand - params["asset_net"] 
 	return(diff)
+
+def policy_ix_to_policy(policy_ix, stoch_states, det_states, action_set):
+	''' Convert a policy index matrix to a policy matrix
+
+	A policy index matrix with rows as stochastic variable, and cols as determinstic variable is converted to a sma shaped policy matrix, with the actual optimal action for each state.
+	'''
+
+	policy = np.zeros(policy_ix.shape)
+	for row in range(stoch_states.shape[0]):
+		for col in range(det_states.shape[0]):
+			policy[row, col] = action_set[policy_ix[row, col]]
+	return(policy)
