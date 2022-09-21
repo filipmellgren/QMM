@@ -89,51 +89,34 @@ rate_post = find_ss_rate(np.repeat(-6,2), V_guess, PARAMS)
 # TODO: next, check that the below works. 
 # TODO: note that asset grid is no longer, necessarily, the same as the action grid. 
 
-def	solve_transition(rate_guess, rate_post, V_post, params):
+def	solve_transition(rate_guess, t, V_post, params):
 	''' Guess an interest rate transition vector, and output net asset demand
 
 	Given an interest rate guess vector, the implied hh behavior and subsequent distribuiton and net asset demand is calculated along the whole transition. 
 	'''
-	action_axis = 2
-	pol_ix = [] #np.empty(params["T"]-1)
-	distr = []  #np.empty(pol_ix.shape)
-	net_asset_demand = [] #np.empty(pol_ix.shape)
+	V_next = V_post
 	borrow_constr = params["policy_bc"]
 	income_states = params["income_states"]
-	np.append(rate_guess, rate_post)
+	pol_ix = []
+	distr = []
 	
-	V = V_post
-	for t in reversed(range(1, params["T"]-1)):
-		# Within loop, find the root finding rate for each t, starting backwards
-		V_next = V
-		try:
-			r_guess = rate_guess[t]
-		except IndexError as e:
-			ipdb.set_trace()
-			raise e
-		
-		bc_t = borrow_constr[min(len(borrow_constr)-1,t)]
-		bc_t_next = borrow_constr[min(len(borrow_constr)-1,t+1)]
-		bc = np.array([bc_t, bc_t_next])
-		reward_matrix = get_util(calc_consumption(params, r_guess, bc), params)
-		asset_states = find_asset_grid(params, bc_t)
-		action_set = find_asset_grid(params, bc_t_next)
-		asset_states_next = np.copy(action_set)
-		
-		V, pol = solve_hh(r_guess, reward_matrix, asset_states_next, np.expand_dims(V_next,2), params)
-		
-		pol_ix.append(pol)
-		
-		distr.append(solve_distr(pol_ix[-1], params))
-		policy = policy_ix_to_policy(pol_ix[-1], income_states, asset_states, action_set)
-		net_asset_demand.append(check_mc(params, policy.T, distr[-1])) # TODO: dislike that I need to transpose
-		# TODO: SOlve for r vector one by one . HERE
-	try:
-		sum_of_squares = np.sum(np.asarray(net_asset_demand)**2)
-	except Exception as e:
-		ipdb.set_trace()
-		raise 
-	return(sum_of_squares, net_asset_demand, pol_ix, distr)
+	bc_t = borrow_constr[min(len(borrow_constr)-1,t)]
+	bc_t_next = borrow_constr[min(len(borrow_constr)-1,t+1)]
+	bc = np.array([bc_t, bc_t_next])
+	reward_matrix = get_util(calc_consumption(params, rate_guess, bc), params)
+	asset_states = find_asset_grid(params, bc_t)
+	action_set = find_asset_grid(params, bc_t_next)
+	asset_states_next = np.copy(action_set)
+	
+	V, pol = solve_hh(rate_guess, reward_matrix, asset_states_next, np.expand_dims(V_next,2), params)
+	
+	pol_ix.append(pol)
+	
+	distr.append(solve_distr(pol_ix[-1], params))
+	policy = policy_ix_to_policy(pol_ix[-1], income_states, asset_states, action_set)
+	net_asset_demand = check_mc(params, policy.T, distr[-1]) # TODO: dislike that I need to transpose
+	return(net_asset_demand)
+	#return(sum_of_squares, net_asset_demand, pol_ix, distr)
 
 def find_transition_eq(params, rate_pre, rate_post, V_post):
 	V_guess = np.full((
@@ -147,8 +130,21 @@ def find_transition_eq(params, rate_pre, rate_post, V_post):
 	if V_post is None:
 		V_post = solve_ss(rate_post, np.repeat(params["policy_bc"][-1],2), V_guess, params)[1]
 	
-	r_guess = np.linspace(rate_pre, rate_post, params["T"]-1) # Last value is appended with rate_post inside objective function.
-	rate_path = sp.optimize.minimize(lambda x: solve_transition(x, rate_post, V_post, params)[0], x0 = r_guess, tol = params["mc_tol"])
+	#action_axis = 2
+	#pol_ix = [] #np.empty(params["T"]-1)
+	#distr = []  #np.empty(pol_ix.shape)
+	#net_asset_demand = [] #np.empty(pol_ix.shape)
+	
+	#income_states = params["income_states"]
+
+	rate_next = rate_post
+	rate_path = []
+	for t in reversed(range(1, params["T"]-1)):
+		# Within loop, find the root finding rate for each t, starting backwards
+		root_rate_t = sp.optimize.newton(lambda x: solve_transition(x, t, V_post, params), x0 = rate_next, x1 = rate_next - 0.005, tol = params["mc_tol"])
+		rate_path.append(root_rate_t)
+		rate_next = root_rate_t
+		print("Found this rate: " + str(root_rate_t) + " at time: " + str(t))
 
 	rate_path = np.append(rate_pre, rate_path)
 	rate_path = np.append(rate_path, rate_post)
