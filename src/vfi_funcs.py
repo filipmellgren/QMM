@@ -5,7 +5,7 @@ from numba import jit, njit, prange
 from numba.typed import Dict
 from scipy import optimize
 import math
-
+#import ipdb
 @jit(nopython=True, fastmath=True, parallel = True)
 def value_function_iterate(V, transition_matrix, reward_matrix, stoch_states, det_states,  disc_factor, tol = 1e-6):
 	""" Value function iterate over two state variables, one stochastic, one deterministic
@@ -37,7 +37,9 @@ def value_function_iterate(V, transition_matrix, reward_matrix, stoch_states, de
 		
 		#assert	disc_factor < 1, "Discount factor has to be less than unity for convergence"
 	#V = V_guess.astype("float16")
-
+	assert np.all(np.sum(transition_matrix, 1) == 1), "Rows in transition matrix don't sum to 1"
+	P = transition_matrix[0, :]
+	assert (np.dot(P, V)).shape[0] == reward_matrix.shape[2], "The size of the expectation of an action and the reward of that action are not the same!"
 	V_new = np.copy(V)
 	POL = np.zeros(V_new.shape, dtype=np.int16)
 	diff = 100.0
