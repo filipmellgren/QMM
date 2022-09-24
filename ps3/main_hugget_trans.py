@@ -1,9 +1,11 @@
-# solve for a transition in the hugget economy
+# solve for a transition in the Hugget economy
+
+# TODO: something goes wrong after 25 time periods. Possibly earlier too. 
 
 import numpy as np
 import sys
 sys.path.append('../')
-from src.vfi_funcs import value_function_iterate
+from src.vfi_funcs import value_function_iterate, end_grid_method, egm
 from src.reward_funcs import get_util, calc_consumption, find_asset_grid
 from src.distribution_funcs import solve_distr, check_mc, policy_ix_to_policy
 import ipdb
@@ -31,15 +33,28 @@ PARAMS = {
 	"income_states": np.array([0.1, 1])
 }
 
-def solve_hh(rate, reward_matrix, asset_states, V_guess, params):
+PARAMS["V_guess"] = np.full((
+			PARAMS["inc_grid_size"],
+			PARAMS["action_grid_size"], 
+			PARAMS["action_grid_size"]), -100.0)
+
+def solve_hh(rate, borrow_constr, reward_matrix, consumption_matrix, asset_states, action_set, V_guess, params, method):
 		
 	arbitrary_slice_index = 0
 
-	V, pol = value_function_iterate(V_guess[:,:, arbitrary_slice_index], PARAMS["transition_matrix"], reward_matrix, params["income_states"], asset_states, params["disc_fact"], params["value_func_tol"])
-	# TODO: implement endoegnous grid method
+	if method == "VFI":
+		# Returns index of policy. Make consistent
+		V, pol = value_function_iterate(V_guess[:,:, arbitrary_slice_index], PARAMS["transition_matrix"], reward_matrix, params["income_states"], asset_states, params["disc_fact"], params["value_func_tol"])
+	# TODO: turn policy index into a policy already here
+	
+	if method == "EGM":	
+		# Return actual policy, not index
+		action_states = find_asset_grid(params, borrow_constr[1])
+		V, pol = egm(V_guess[:,:, arbitrary_slice_index].T, PARAMS["transition_matrix"], action_states, asset_states, rate, params, tol = 1e-6)
+
 	return(V, pol)
 
-def solve_ss(rate_guess, borrow_constr, V_guess, params):
+def solve_ss(rate_guess, borrow_constr, V_guess, params, method = "VFI"):
 	''' Solves steady state
 
 	borrow_constr : in steady state, borrow constraint should be a fixed scalar
@@ -52,9 +67,11 @@ def solve_ss(rate_guess, borrow_constr, V_guess, params):
 	asset_states = find_asset_grid(params, borrow_constr[0])
 	action_set = np.copy(asset_states)
 
-	reward_matrix = get_util(calc_consumption(params, rate_guess, borrow_constr), params)
+	consumption_matrix = calc_consumption(params, rate_guess, borrow_constr)
+	reward_matrix = get_util(consumption_matrix, params)
 	
-	V, policy_ix = solve_hh(rate_guess, reward_matrix, asset_states, V_guess, params)
+	V, policy_ix = solve_hh(rate_guess, borrow_constr, reward_matrix, consumption_matrix, asset_states, action_set, V_guess, params, method)
+	
 	policy = np.zeros(policy_ix.shape)
 	
 	for row in range(params["income_states"].shape[0]):
@@ -64,19 +81,22 @@ def solve_ss(rate_guess, borrow_constr, V_guess, params):
 	net_asset_demand = check_mc(params, policy, distr.T)
 	return(net_asset_demand, V, policy, distr)
 
-def find_ss_rate(borrow_constr, V_guess, params):
+def find_ss_rate(borrow_constr, V_guess, params, method = "VFI"):
 	'''
 	Find the interest rate that sets the steady state economy in equilibrium.
 	'''
 	x0 = 0.001
 	x1 = 1/params["disc_fact"]-1-0.001
 	try:
-		root_rate= sp.optimize.newton(lambda x: solve_ss(x, borrow_constr, V_guess, params)[0], x0 = x0, x1 = x1 , tol = params["mc_tol"])
+		root_rate= sp.optimize.newton(lambda x: solve_ss(x, borrow_constr, V_guess, params, method)[0], x0 = x0, x1 = x1 , tol = params["mc_tol"])
 	except TypeError as e:
 		print("Probably got: TypeError: 'int' object is not subscriptable. This means the grid is too coarse I think. INcreasing the size seems to help.")
 		raise e
 	
 	return(root_rate)
+
+rate_pre = find_ss_rate(np.repeat(PARAMS["policy_bc"][0],2), PARAMS["V_guess"], PARAMS, method = "EGM")
+
 
 def	solve_transition(rate_guess, t, V_post, params):
 	''' Guess an interest rate transition vector, and output net asset demand
@@ -89,15 +109,16 @@ def	solve_transition(rate_guess, t, V_post, params):
 	pol_ix = []
 	distr = []
 	
-	bc_t = borrow_constr[min(len(borrow_constr)-1,t)]
+	bc_t = borrow_constr[min(len(borrow_constr)-1,t)] # TODO: something wacky happens when borrow _constr - 1 is min
 	bc_t_next = borrow_constr[min(len(borrow_constr)-1,t+1)]
 	bc = np.array([bc_t, bc_t_next])
-	reward_matrix = get_util(calc_consumption(params, rate_guess, bc), params)
+	consumption_matrix = calc_consumption(params, rate_guess, bc)
+	reward_matrix = get_util(consumption_matrix, params)
 	asset_states = find_asset_grid(params, bc_t)
 	action_set = find_asset_grid(params, bc_t_next)
 	asset_states_next = np.copy(action_set)
 	
-	V, pol = solve_hh(rate_guess, reward_matrix, asset_states_next, np.expand_dims(V_next,2), params)
+	V, pol = solve_hh(rate_guess, bc_t, reward_matrix, consumption_matrix, asset_states_next, action_set, np.expand_dims(V_next,2), params, method = "VFI")
 	
 	pol_ix.append(pol)
 	
@@ -132,8 +153,8 @@ def find_transition_eq(params, rate_pre = None, rate_post = None, V_post = None)
 		rate_next = root_rate_t
 		print("Found this rate: " + str(root_rate_t) + " at time: " + str(t))
 
-	rate_path = np.append(rate_pre, rate_path)
-	rate_path = np.append(rate_path, rate_post)
+	rate_path = np.append(rate_path, rate_pre)
+	rate_path = np.append(rate_post, rate_path)
 
 	return(rate_path)
 
@@ -145,15 +166,18 @@ df = pd.DataFrame(rate_path, columns = ["rate"])
 df["time"] = abs(df.index - PARAMS["T"])-1
 
 fig = px.line(df, x="time", y="rate", 
-	title='Interest rate path',
+	title='Interest rate path <br><sup> ' + "Value function iteration" + ' </sup>',
 	template = 'plotly_white')
 fig.add_vline(x=len(PARAMS["policy_bc"])-1, line_width=2, line_dash="dash")
 fig.show()
 fig.write_image('figures/rate_path.png')
 
-# plot the interest rate path
-
-# reproduce the distribution over welfate gains in consumption equivalent units
+# reproduce the distribution over welfare gains in consumption equivalent units
+def calc_welfare():
+	alpha = 0 # A solution to an equality it seems. Can sometimes be backed out. 
+	consumption_units_gained = alpha
+	return(consumption_units_gained)
 
 # Endogenous grid method
+
 
