@@ -65,6 +65,7 @@ def value_function_iterate(V, transition_matrix, reward_matrix, stoch_states, de
 def egm(V, transition_matrix, action_states, asset_states, rate, params, tol = 1e-6):
 	""" Implements the Endogenous Grid Method for solving the household problem.
 	
+	Useful reference: https://alisdairmckay.com/Notes/HetAgents/EGM.html
 	The EGM method solves the household problem faster than VFI by using the HH first order condition to find the policy functions. Attributed to Carroll (2006).
 
 	Roughly the algorithm for updating the diff between policy guess and updated policy is:
