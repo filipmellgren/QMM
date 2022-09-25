@@ -37,25 +37,20 @@ PARAMS = {
 }
 
 PARAMS["V_guess"] = np.full((
-			PARAMS["inc_grid_size"],
-			PARAMS["action_grid_size"], 
-			PARAMS["action_grid_size"]), -100.0)
+			PARAMS["action_grid_size"],
+			PARAMS["inc_grid_size"]), -100.0)
 
 def solve_hh(rate, borrow_constr, reward_matrix, consumption_matrix, asset_states, action_set, V_guess, params, method):
-		
-	arbitrary_slice_index = 0
+	# Note, the two methods seem to almost give the same policy. Most values correspond, some don't but are close nontheless. Not the same value function.
+	
 	if method == "VFI":
 		# Returns index of policy. Make consistent
-		V, pol_ix = value_function_iterate(V_guess[:,:, arbitrary_slice_index].T, PARAMS["transition_matrix"], reward_matrix, params["income_states"], asset_states, params["disc_fact"], params["value_func_tol"])
+		V, pol_ix = value_function_iterate(V_guess, PARAMS["transition_matrix"], reward_matrix, params["income_states"], asset_states, params["disc_fact"], params["value_func_tol"])
 		pol = policy_ix_to_policy(pol_ix.T, params["income_states"], asset_states, action_set)
 		pol = pol.T
-		# Note: V is transposed. Might matter. 
 	
 	if method == "EGM":	
-		# Return actual policy, not index
-		
 		action_states = find_asset_grid(params, borrow_constr[1])
-		V_guess = V_guess[:,:, arbitrary_slice_index].T
 		V, pol = egm(V_guess, PARAMS["transition_matrix"], action_states, asset_states, rate, params, tol = 1e-6)
 		# Transform policy back to the exogenous grid for compatibility with distribution iteration
 		for s in range(pol.shape[1]):
@@ -102,19 +97,15 @@ def find_ss_rate(borrow_constr, V_guess, params, method = "VFI"):
 	
 	return(root_rate)
 
-bc_ss = np.repeat(PARAMS["policy_bc"][0],2)
-tmp = solve_ss(0.001, bc_ss, PARAMS["V_guess"], PARAMS, "VFI")
+#rate_pre = find_ss_rate(np.repeat(PARAMS["policy_bc"][0],2), PARAMS["V_guess"], PARAMS, method = "EGM")
 
-rate_pre = find_ss_rate(np.repeat(PARAMS["policy_bc"][0],2), PARAMS["V_guess"], PARAMS, method = "VFI")
+#rate_post = find_ss_rate(np.repeat(PARAMS["policy_bc"][-1],2), PARAMS["V_guess"], PARAMS, method = "EGM")
 
-rate_post = find_ss_rate(np.repeat(PARAMS["policy_bc"][-1],2), PARAMS["V_guess"], PARAMS, method = "EGM")
-
-def	solve_transition(rate_guess, t, V_post, params):
+def	solve_transition(rate_guess, t, V_next, params):
 	''' Guess an interest rate transition vector, and output net asset demand
 
 	Given an interest rate guess vector, the implied hh behavior and subsequent distribuiton and net asset demand is calculated along the whole transition. 
 	'''
-	V_next = V_post
 	borrow_constr = params["policy_bc"]
 	income_states = params["income_states"]
 	pol_list = []
@@ -128,12 +119,10 @@ def	solve_transition(rate_guess, t, V_post, params):
 	asset_states = find_asset_grid(params, bc_t)
 	action_set = find_asset_grid(params, bc_t_next)
 	asset_states_next = np.copy(action_set)
-	
-	V, pol = solve_hh(rate_guess, bc_t, reward_matrix, consumption_matrix, asset_states_next, action_set, np.expand_dims(V_next,2), params, method = "EGM")
-	
+	V, pol = solve_hh(rate_guess, bc, reward_matrix, consumption_matrix, asset_states_next, action_set, V_next, params, method = "EGM")
 	pol_list.append(pol)
 	distr.append(solve_distr(pol_list[-1], action_set, params)) 
-	net_asset_demand = check_mc(params, policy, distr[-1]) 
+	net_asset_demand = check_mc(params, pol, distr[-1]) 
 	return(net_asset_demand)
 
 def find_transition_eq(params, rate_pre = None, rate_post = None, V_post = None):
@@ -141,22 +130,21 @@ def find_transition_eq(params, rate_pre = None, rate_post = None, V_post = None)
 
 	Can take as input pre and post ss interest rates. Default is to compute them.
 	'''
-	V_guess = np.full((
-			params["inc_grid_size"],
-			params["action_grid_size"], 
-			params["action_grid_size"]), -100.0)
 	if rate_pre is None:
-		rate_pre = find_ss_rate(np.repeat(params["policy_bc"][0],2), V_guess, params)
+		rate_pre = find_ss_rate(np.repeat(params["policy_bc"][0],2), params["V_guess"], params)
 	if rate_post is None:
-		rate_post = find_ss_rate(np.repeat(params["policy_bc"][-1],2), V_guess, params)
+		rate_post = find_ss_rate(np.repeat(params["policy_bc"][-1],2), params["V_guess"], params)
 	if V_post is None:
-		V_post = solve_ss(rate_post, np.repeat(params["policy_bc"][-1],2), V_guess, params)[1]
+		V_post = solve_ss(rate_post, np.repeat(params["policy_bc"][-1],2), params["V_guess"], params)[1]
 	
 	rate_next = rate_post
 	rate_path = []
+
 	for t in reversed(range(1, params["T"]-1)):
+		# TODO: is it necessary to update V_post?
 		# Within loop, find the root finding rate for each t, starting backwards
 		root_rate_t = sp.optimize.newton(lambda x: solve_transition(x, t, V_post, params), x0 = rate_next, x1 = rate_next - 0.005, tol = params["mc_tol"])
+
 		rate_path.append(root_rate_t)
 		rate_next = root_rate_t
 		print("Found this rate: " + str(root_rate_t) + " at time: " + str(t))
