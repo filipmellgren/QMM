@@ -1,9 +1,6 @@
 # solve for a transition in the Hugget economy
 
 # TODO: something goes wrong after 25 time periods. Possibly earlier too. 
-# TODO: not sure I need to interpolate? I already have the mapping in a way.
-# Maybe error is how I use the policy later.
-# SHould run functions one by one to see what happens in each 
 
 import numpy as np
 import sys
@@ -47,12 +44,12 @@ PARAMS["V_guess"] = np.full((
 def solve_hh(rate, borrow_constr, reward_matrix, consumption_matrix, asset_states, action_set, V_guess, params, method):
 		
 	arbitrary_slice_index = 0
-
 	if method == "VFI":
 		# Returns index of policy. Make consistent
-		V, pol_ix = value_function_iterate(V_guess[:,:, arbitrary_slice_index], PARAMS["transition_matrix"], reward_matrix, params["income_states"], asset_states, params["disc_fact"], params["value_func_tol"])
-		pol = policy_ix_to_policy(pol_ix, params["income_states"], asset_states, action_set)
+		V, pol_ix = value_function_iterate(V_guess[:,:, arbitrary_slice_index].T, PARAMS["transition_matrix"], reward_matrix, params["income_states"], asset_states, params["disc_fact"], params["value_func_tol"])
+		pol = policy_ix_to_policy(pol_ix.T, params["income_states"], asset_states, action_set)
 		pol = pol.T
+		# Note: V is transposed. Might matter. 
 	
 	if method == "EGM":	
 		# Return actual policy, not index
@@ -93,8 +90,8 @@ def find_ss_rate(borrow_constr, V_guess, params, method = "VFI"):
 	'''
 	Find the interest rate that sets the steady state economy in equilibrium.
 	'''
-	x0 = 0.001
-	x1 = 1/params["disc_fact"]-1-0.001
+	x0 = 1e-6
+	x1 = 1/params["disc_fact"]-1-1e-6
 	try:
 		root_rate= sp.optimize.newton(lambda x: solve_ss(x, borrow_constr, V_guess, params, method)[0], x0 = x0, x1 = x1 , tol = params["mc_tol"])
 	except TypeError as te:
@@ -106,15 +103,11 @@ def find_ss_rate(borrow_constr, V_guess, params, method = "VFI"):
 	return(root_rate)
 
 bc_ss = np.repeat(PARAMS["policy_bc"][0],2)
-tmp = solve_ss(0.001, bc_ss, PARAMS["V_guess"], PARAMS, "EGM")
-
-rate_pre = find_ss_rate(np.repeat(PARAMS["policy_bc"][0],2), PARAMS["V_guess"], PARAMS, method = "EGM")
+tmp = solve_ss(0.001, bc_ss, PARAMS["V_guess"], PARAMS, "VFI")
 
 rate_pre = find_ss_rate(np.repeat(PARAMS["policy_bc"][0],2), PARAMS["V_guess"], PARAMS, method = "VFI")
 
-import matplotlib.pyplot as plt
-plt.plot(endog_asset, exog_action, color ="red")
-plt.show()
+rate_post = find_ss_rate(np.repeat(PARAMS["policy_bc"][-1],2), PARAMS["V_guess"], PARAMS, method = "EGM")
 
 def	solve_transition(rate_guess, t, V_post, params):
 	''' Guess an interest rate transition vector, and output net asset demand
@@ -136,7 +129,7 @@ def	solve_transition(rate_guess, t, V_post, params):
 	action_set = find_asset_grid(params, bc_t_next)
 	asset_states_next = np.copy(action_set)
 	
-	V, pol = solve_hh(rate_guess, bc_t, reward_matrix, consumption_matrix, asset_states_next, action_set, np.expand_dims(V_next,2), params, method = "VFI")
+	V, pol = solve_hh(rate_guess, bc_t, reward_matrix, consumption_matrix, asset_states_next, action_set, np.expand_dims(V_next,2), params, method = "EGM")
 	
 	pol_list.append(pol)
 	distr.append(solve_distr(pol_list[-1], action_set, params)) 

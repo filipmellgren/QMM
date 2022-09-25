@@ -39,12 +39,7 @@ def value_function_iterate(V, transition_matrix, reward_matrix, stoch_states, de
 	POL
 		Numpy array of dimensions stoch_states by det_states with index of optimal action
 	"""
-		
-		#assert	disc_factor < 1, "Discount factor has to be less than unity for convergence"
-	#V = V_guess.astype("float16")
 	assert np.all(np.sum(transition_matrix, 1) == 1), "Rows in transition matrix don't sum to 1"
-	P = transition_matrix[0, :]
-	assert (np.dot(P, V)).shape[0] == reward_matrix.shape[2], "The size of the expectation of an action and the reward of that action are not the same!"
 	V_new = np.copy(V)
 	POL = np.zeros(V_new.shape, dtype=np.int16)
 	diff = 100.0
@@ -55,14 +50,14 @@ def value_function_iterate(V, transition_matrix, reward_matrix, stoch_states, de
 		for s_ix in range(stoch_states.shape[0]):
 			P = transition_matrix[s_ix, :]
 			V = np.copy(V_new)
-			E_action_val = np.dot(P, V) # Vector valued. One value per action.
+			E_action_val = np.dot(V, P.T) # Vector valued. One value per action.
 			for d_ix in prange(det_states.shape[0]):
-				v = V[s_ix, d_ix]
+				v = V[d_ix, s_ix]
 				V_new_cands = reward_matrix[s_ix, d_ix,:] + disc_factor * E_action_val
 				pol = np.argmax(V_new_cands)
-				POL[s_ix, d_ix] = pol
+				POL[d_ix, s_ix] = pol
 				v_new = V_new_cands[pol]
-				V_new[s_ix, d_ix] = v_new
+				V_new[d_ix, s_ix] = v_new
 				diff = max(diff, abs(v - v_new))
 
 	return(V, POL)
@@ -77,7 +72,7 @@ def egm(V, transition_matrix, action_states, asset_states, rate, params, tol = 1
 		* Calculate marginal utility of consumption today using the Euler Equation. This requires the expected marginal utility of consumption tomorrow. Solve for consumption today. Easy with CRRA utility (which implementation assumes, not with parameter 1 though, the log utility case, approximate with value close to 1).
 		* Above gives mapping from action to assets today. Want to flip this relation, do that using interpolation and evaluate at the exogenous grid. Extrapolate using borrowing constraint and maximum possible asset value (later shouldn't be a problem ideally, just increase upper bound).
 		* Update policy and calculate the distance metric, compare and terminate or reiterate.
-		
+
 	Parameters
 	----------
 	TODO: update the below.
@@ -100,7 +95,6 @@ def egm(V, transition_matrix, action_states, asset_states, rate, params, tol = 1
 	action_n = action_states.shape[0]
 	income_n = income_states.shape[0]
 	action_states = np.tile(action_states.T, income_n).reshape(income_n, action_n).T
-	asset_states = np.tile(asset_states.T, income_n).reshape(income_n, action_n).T
 	exog_grid = np.copy(action_states)
 	policy_guess = np.full((action_n, income_n), np.min(action_states))
 	policy_guess += np.tile(np.linspace(0.001, 0.01, action_n).T, income_n).reshape(income_n, action_n).T
@@ -111,20 +105,17 @@ def egm(V, transition_matrix, action_states, asset_states, rate, params, tol = 1
 	while diff > tol:
 		diff = 0
 
-		cons_fut = (1+rate) * action_states + income_states - policy_guess
-		mu_cons_fut = cons_fut**(-params["risk_aver"])
-		Ecf = np.matmul(mu_cons_fut, P)
+		mu_cons_fut = ((1+rate) * action_states + income_states - policy_guess)**(-params["risk_aver"])
+		Ecf = np.matmul(mu_cons_fut, P.T)
 		cons_today = (params["disc_fact"] * (1+rate) * Ecf)**(-1/params["risk_aver"])
 		endog_assets = 1/(1+rate) * (cons_today + action_states - income_states) # Mapping from action to assets. Want mapping from assets to action. 
-		
 		policy_guess_upd = np.empty(policy_guess.shape)
 		for s in range(income_n):
 			# Invert the mapping. Extrapolate outside range using borrowing constraint and max assets in exogenous grid. 
-			endog_asset = endog_assets[:,s]
 			exog_action = action_states[:,s]
-			policy_guess_upd[:,s] = np.interp(x = exog_grid[:,s], xp = endog_asset, fp = exog_action, left = exog_action[0], right = exog_action[-1]) 
+			policy_guess_upd[:,s] = np.interp(x = exog_grid[:,s], xp = endog_assets[:,s], fp = exog_action, left = exog_action[0], right = exog_action[-1]) 
 			
-		diff = max(np.nanmax(np.abs(policy_guess_upd - policy_guess)), diff)
+		diff = max(np.max(np.abs(policy_guess_upd - policy_guess)), diff)
 		policy_guess = np.copy(policy_guess_upd)
 
 		reward = (np.power(cons_today, 1-params["risk_aver"]))/(1-params["risk_aver"])
