@@ -12,7 +12,7 @@ def get_util(consumption, params):
 	'''
 	utility = np.zeros(consumption.shape)
 	with np.errstate(invalid='ignore'):
-		utility = (np.power(consumption, 1-params["risk_aver"])-1)/(1-params["risk_aver"])
+		utility = (np.power(consumption, 1-params["risk_aver"]))/(1-params["risk_aver"])
 	utility[consumption<0] = -np.inf 
 
 	assert utility[consumption.shape[0]-1, consumption.shape[1]-1, 0] == np.max(utility), "Expected max utility is not max."
