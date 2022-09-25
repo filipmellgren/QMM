@@ -1,7 +1,5 @@
 # solve for a transition in the Hugget economy
 
-# TODO: something goes wrong after 25 time periods. Possibly earlier too. 
-
 import numpy as np
 import sys
 sys.path.append('../')
@@ -169,11 +167,5 @@ fig.show()
 fig.write_image('figures/rate_path.png')
 
 # reproduce the distribution over welfare gains in consumption equivalent units
-def calc_welfare():
-	alpha = 0 # A solution to an equality it seems. Can sometimes be backed out. 
-	consumption_units_gained = alpha
-	return(consumption_units_gained)
-
-# Endogenous grid method
 
 
