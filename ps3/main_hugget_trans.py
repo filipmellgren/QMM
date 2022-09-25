@@ -1,11 +1,14 @@
 # solve for a transition in the Hugget economy
 
 # TODO: something goes wrong after 25 time periods. Possibly earlier too. 
+# TODO: not sure I need to interpolate? I already have the mapping in a way.
+# Maybe error is how I use the policy later.
+# SHould run functions one by one to see what happens in each 
 
 import numpy as np
 import sys
 sys.path.append('../')
-from src.vfi_funcs import value_function_iterate, end_grid_method, egm
+from src.vfi_funcs import value_function_iterate, egm
 from src.reward_funcs import get_util, calc_consumption, find_asset_grid
 from src.distribution_funcs import solve_distr, check_mc, policy_ix_to_policy
 import ipdb
@@ -16,6 +19,9 @@ import pandas as pd
 import plotly.express as px
 import scipy as sp
 import pandas as pd
+from interpolation import interp
+from scipy import interpolate
+
 
 PARAMS = {
 	"disc_fact": 0.993362,
@@ -44,14 +50,20 @@ def solve_hh(rate, borrow_constr, reward_matrix, consumption_matrix, asset_state
 
 	if method == "VFI":
 		# Returns index of policy. Make consistent
-		V, pol = value_function_iterate(V_guess[:,:, arbitrary_slice_index], PARAMS["transition_matrix"], reward_matrix, params["income_states"], asset_states, params["disc_fact"], params["value_func_tol"])
-	# TODO: turn policy index into a policy already here
+		V, pol_ix = value_function_iterate(V_guess[:,:, arbitrary_slice_index], PARAMS["transition_matrix"], reward_matrix, params["income_states"], asset_states, params["disc_fact"], params["value_func_tol"])
+		pol = policy_ix_to_policy(pol_ix, params["income_states"], asset_states, action_set)
+		pol = pol.T
 	
 	if method == "EGM":	
 		# Return actual policy, not index
+		
 		action_states = find_asset_grid(params, borrow_constr[1])
-		V, pol = egm(V_guess[:,:, arbitrary_slice_index].T, PARAMS["transition_matrix"], action_states, asset_states, rate, params, tol = 1e-6)
-
+		V_guess = V_guess[:,:, arbitrary_slice_index].T
+		V, pol = egm(V_guess, PARAMS["transition_matrix"], action_states, asset_states, rate, params, tol = 1e-6)
+		# Transform policy back to the exogenous grid for compatibility with distribution iteration
+		for s in range(pol.shape[1]):
+			pol_s = pol[:,s]
+			pol[:,s] = action_states[abs(pol_s[None, :] - action_states[:, None]).argmin(axis=0)]
 	return(V, pol)
 
 def solve_ss(rate_guess, borrow_constr, V_guess, params, method = "VFI"):
@@ -60,25 +72,21 @@ def solve_ss(rate_guess, borrow_constr, V_guess, params, method = "VFI"):
 	borrow_constr : in steady state, borrow constraint should be a fixed scalar
 	'''
 	if rate_guess <= 0:
-		return(-1) # Bad guess, don't continue
+		return([-100]) # Bad guess, don't continue
 	if rate_guess >= 1/params["disc_fact"]-1:
-		return(1) # Bad guess, don't continue
+		return([100]) # Bad guess, don't continue
 	
 	asset_states = find_asset_grid(params, borrow_constr[0])
 	action_set = np.copy(asset_states)
-
+	
 	consumption_matrix = calc_consumption(params, rate_guess, borrow_constr)
 	reward_matrix = get_util(consumption_matrix, params)
 	
-	V, policy_ix = solve_hh(rate_guess, borrow_constr, reward_matrix, consumption_matrix, asset_states, action_set, V_guess, params, method)
-	
-	policy = np.zeros(policy_ix.shape)
-	
-	for row in range(params["income_states"].shape[0]):
-		for col in range(asset_states.shape[0]):
-			policy[row, col] = action_set[policy_ix[row, col]]
-	distr = solve_distr(policy_ix, params)
-	net_asset_demand = check_mc(params, policy, distr.T)
+	V, policy = solve_hh(rate_guess, borrow_constr, reward_matrix, consumption_matrix, asset_states, action_set, V_guess, params, method)
+	assert not np.any(np.isnan(policy)), "There are nan values in the policy matrix"
+
+	distr = solve_distr(policy, action_set, params)
+	net_asset_demand = check_mc(params, policy, distr)
 	return(net_asset_demand, V, policy, distr)
 
 def find_ss_rate(borrow_constr, V_guess, params, method = "VFI"):
@@ -89,14 +97,24 @@ def find_ss_rate(borrow_constr, V_guess, params, method = "VFI"):
 	x1 = 1/params["disc_fact"]-1-0.001
 	try:
 		root_rate= sp.optimize.newton(lambda x: solve_ss(x, borrow_constr, V_guess, params, method)[0], x0 = x0, x1 = x1 , tol = params["mc_tol"])
-	except TypeError as e:
-		print("Probably got: TypeError: 'int' object is not subscriptable. This means the grid is too coarse I think. INcreasing the size seems to help.")
-		raise e
+	except TypeError as te:
+		print("Probably got: TypeError: 'int' object is not subscriptable. This means the grid is too coarse I think. Increasing the size seems to help.")
+		raise te
+	except RuntimeError:
+		root_rate = sp.optimize.bisect(lambda x: solve_ss(x, borrow_constr, V_guess, params, method), a = x0, b = x0, xtol = params["mc_tol"]) 
 	
 	return(root_rate)
 
+bc_ss = np.repeat(PARAMS["policy_bc"][0],2)
+tmp = solve_ss(0.001, bc_ss, PARAMS["V_guess"], PARAMS, "EGM")
+
 rate_pre = find_ss_rate(np.repeat(PARAMS["policy_bc"][0],2), PARAMS["V_guess"], PARAMS, method = "EGM")
 
+rate_pre = find_ss_rate(np.repeat(PARAMS["policy_bc"][0],2), PARAMS["V_guess"], PARAMS, method = "VFI")
+
+import matplotlib.pyplot as plt
+plt.plot(endog_asset, exog_action, color ="red")
+plt.show()
 
 def	solve_transition(rate_guess, t, V_post, params):
 	''' Guess an interest rate transition vector, and output net asset demand
@@ -106,7 +124,7 @@ def	solve_transition(rate_guess, t, V_post, params):
 	V_next = V_post
 	borrow_constr = params["policy_bc"]
 	income_states = params["income_states"]
-	pol_ix = []
+	pol_list = []
 	distr = []
 	
 	bc_t = borrow_constr[min(len(borrow_constr)-1,t)] # TODO: something wacky happens when borrow _constr - 1 is min
@@ -120,13 +138,10 @@ def	solve_transition(rate_guess, t, V_post, params):
 	
 	V, pol = solve_hh(rate_guess, bc_t, reward_matrix, consumption_matrix, asset_states_next, action_set, np.expand_dims(V_next,2), params, method = "VFI")
 	
-	pol_ix.append(pol)
-	
-	distr.append(solve_distr(pol_ix[-1], params))
-	policy = policy_ix_to_policy(pol_ix[-1], income_states, asset_states, action_set)
-	net_asset_demand = check_mc(params, policy.T, distr[-1]) # TODO: dislike that I need to transpose
+	pol_list.append(pol)
+	distr.append(solve_distr(pol_list[-1], action_set, params)) 
+	net_asset_demand = check_mc(params, policy, distr[-1]) 
 	return(net_asset_demand)
-	#return(sum_of_squares, net_asset_demand, pol_ix, distr)
 
 def find_transition_eq(params, rate_pre = None, rate_post = None, V_post = None):
 	''' Find path of the interest rate between the two steady states.

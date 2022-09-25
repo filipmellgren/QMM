@@ -1,17 +1,18 @@
 # Solve for the ergodic distribution
 import numpy as np
 from numba import jit, njit, prange
-@jit(nopython=True, parallel = True)
-def iterate_distr(distr_guess, policy_ix, transition_matrix, inc_size, asset_size, tol):
+import ipdb
+#@jit(nopython=True, parallel = True)
+def iterate_distr(distr_guess, policy, action_set, transition_matrix, inc_size, asset_size, tol):
+	# TODO: make sure that the policy grid conforms with the action set grid. 
 	diff = 100.0
 	while diff > tol:
 		diff = 0.0
 			# Transition vector is the transition probability to a state (col)  from all possible states in the rows
-		for sl in prange(inc_size):
+		for sl in range(inc_size):
 			transition_vector = transition_matrix[:,sl] # From sl to sj # TODO: correct index?
 			for ak in range(asset_size):
-				#ak_val = params["action_set"][ak]
-				indic = ak == policy_ix
+				indic = np.abs(action_set[ak] - policy) < 0.000001 # TODO make these two compatible
 				d_new = np.sum(np.dot((indic * distr_guess), transition_vector))
 				d_prev = distr_guess[ak, sl]
 				diff = max(diff, abs(d_new - d_prev))
@@ -19,12 +20,10 @@ def iterate_distr(distr_guess, policy_ix, transition_matrix, inc_size, asset_siz
 		distr_guess = distr_guess/np.sum(distr_guess) # TODO: this is super hacky! It is needed bc I think the distribution starts to drift away from 1. 
 	return(distr_guess)
 
-def solve_distr(policy_ix, params):
+def solve_distr(policy, action_set, params):
 	'''
 	Given interest rate, houesehold policies, and exogenous income process, what distribution do we end up with?
 	'''
-	policy_ix = policy_ix.T
-	policy_ix = policy_ix.astype(int) # Want to be sure of this when using in Numba
 	distr_guess = np.full((
 		params["action_grid_size"],
 		params["inc_grid_size"]), 1/(params["inc_grid_size"]*params["action_grid_size"]))
@@ -40,9 +39,9 @@ def solve_distr(policy_ix, params):
 	row_sums = np.sum(transition_matrix, axis = 1)
 	assert np.all(np.isclose(row_sums, 1)), "Transition matrix is not right stochastic, given row, columns should sum to one."
 
-	assert policy_ix.shape == (params["action_grid_size"], params["inc_grid_size"]), "Policy index not of expected dimension. It is: " + str(policy_ix.shape)
+	assert policy.shape == (params["action_grid_size"], params["inc_grid_size"]), "Policy index not of expected dimension. It is: " + str(policy.shape)
 
-	distr_guess = iterate_distr(distr_guess, policy_ix, transition_matrix, params["inc_grid_size"], params["action_grid_size"], tol)
+	distr_guess = iterate_distr(distr_guess, policy, action_set, transition_matrix, params["inc_grid_size"], params["action_grid_size"], tol)
 
 	sum_distribution = np.sum(distr_guess)
 
