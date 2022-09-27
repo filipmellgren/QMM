@@ -62,7 +62,7 @@ def value_function_iterate(V, transition_matrix, reward_matrix, stoch_states, de
 
 	return(V, POL)
 
-def egm(V, transition_matrix, action_states, income_states, rate, params, tol = 1e-6):
+def egm(V, transition_matrix, action_states, income_states_t, income_states_f, rate, params, tol = 1e-6):
 	""" Implements the Endogenous Grid Method for solving the household problem.
 	
 	Useful reference: https://alisdairmckay.com/Notes/HetAgents/EGM.html
@@ -92,7 +92,8 @@ def egm(V, transition_matrix, action_states, income_states, rate, params, tol = 
 		Numpy array of dimensions stoch_states by det_states with index of optimal action
 	"""
 	
-	# income_states = params["income_states"] # TODO: note that this is now in args.
+	# TODO: note we now have income states today and in the future and let these be different. 
+	# Means problem set 3 is broken (just add the same income state to both arguments)
 	action_n = action_states.shape[0]
 	income_n = income_states.shape[0]
 	action_states = np.tile(action_states.T, income_n).reshape(income_n, action_n).T
@@ -106,10 +107,10 @@ def egm(V, transition_matrix, action_states, income_states, rate, params, tol = 
 	while diff > tol:
 		diff = 0
 
-		mu_cons_fut = ((1+rate) * action_states + income_states - policy_guess)**(-params["risk_aver"])
+		mu_cons_fut = ((1+rate) * action_states + income_states_f - policy_guess)**(-params["risk_aver"])
 		Ecf = np.matmul(mu_cons_fut, P.T)
 		cons_today = (params["disc_fact"] * (1+rate) * Ecf)**(-1/params["risk_aver"])
-		endog_assets = 1/(1+rate) * (cons_today + action_states - income_states) # Mapping from action to assets. Want mapping from assets to action. 
+		endog_assets = 1/(1+rate) * (cons_today + action_states - income_states_t) # Mapping from action to assets. Want mapping from assets to action. 
 		policy_guess_upd = np.empty(policy_guess.shape)
 		for s in range(income_n):
 			# Invert the mapping. Extrapolate outside range using borrowing constraint and max assets in exogenous grid. 
