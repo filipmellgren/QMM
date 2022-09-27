@@ -62,7 +62,7 @@ def value_function_iterate(V, transition_matrix, reward_matrix, stoch_states, de
 
 	return(V, POL)
 
-def egm(V, transition_matrix, action_states, asset_states, rate, params, tol = 1e-6):
+def egm(V, transition_matrix, action_states, income_states, rate, params, tol = 1e-6):
 	""" Implements the Endogenous Grid Method for solving the household problem.
 	
 	Useful reference: https://alisdairmckay.com/Notes/HetAgents/EGM.html
@@ -92,7 +92,7 @@ def egm(V, transition_matrix, action_states, asset_states, rate, params, tol = 1
 		Numpy array of dimensions stoch_states by det_states with index of optimal action
 	"""
 	
-	income_states = params["income_states"]
+	# income_states = params["income_states"] # TODO: note that this is now in args.
 	action_n = action_states.shape[0]
 	income_n = income_states.shape[0]
 	action_states = np.tile(action_states.T, income_n).reshape(income_n, action_n).T
