@@ -1,5 +1,6 @@
 import scipy.stats as st
 import scipy as sp
+import numpy as np
 
 def tauchenhussey(N,mu,rho,sigma, baseSigma):
 	""" 
@@ -108,3 +109,16 @@ def gausshermite(n):
 	
 	x = x[::-1]
 	return [x,w]
+
+def floden_w(ar1):
+	'''
+	Implements Flodén weighting
+	'''
+	weight = 0.5 + ar1/4
+	return(weight)
+
+def floden_basesigma(sigma, rho):
+		w = floden_w(rho)
+		sigmaZ = sigma/np.sqrt(1-rho**2)
+		baseSigma = w*sigma +(1-w)*sigmaZ
+		return(baseSigma)
