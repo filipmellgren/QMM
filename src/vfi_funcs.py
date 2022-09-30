@@ -62,9 +62,11 @@ def value_function_iterate(V, transition_matrix, reward_matrix, stoch_states, de
 
 	return(V, POL)
 
-def egm(V, transition_matrix, action_states, income_states_t, income_states_f, rate, disc_factor, params, tol = 1e-6):
+def egm(V, transition_matrix, action_states, asset_states, rate, params, tol = 1e-6):
 	""" Implements the Endogenous Grid Method for solving the household problem.
 	
+	# TODO: only works for infinitely lived household problems. 
+
 	Useful reference: https://alisdairmckay.com/Notes/HetAgents/EGM.html
 	The EGM method solves the household problem faster than VFI by using the HH first order condition to find the policy functions. Attributed to Carroll (2006).
 
@@ -92,13 +94,10 @@ def egm(V, transition_matrix, action_states, income_states_t, income_states_f, r
 		Numpy array of dimensions stoch_states by det_states with index of optimal action
 	"""
 	
-	# TODO: note we now have income states today and in the future and let these be different. 
-	# Means problem set 3 is broken (just add the same income state to both arguments)
+	income_states = params["income_states"]
 	action_n = action_states.shape[0]
-	assert income_states_t.shape[0] == income_states_f.shape[0]
-	
-	income_n = income_states_t.shape[0]
-	#action_states = np.tile(action_states.T, income_n).reshape(income_n, action_n).T # TODO: note that this chanhes ps3, must give this data type, not jsut the vector. 
+	income_n = income_states.shape[0]
+	action_states = np.tile(action_states.T, income_n).reshape(income_n, action_n).T
 	exog_grid = np.copy(action_states)
 	policy_guess = np.full((action_n, income_n), np.min(action_states))
 	policy_guess += np.tile(np.linspace(0.001, 0.01, action_n).T, income_n).reshape(income_n, action_n).T
@@ -109,11 +108,10 @@ def egm(V, transition_matrix, action_states, income_states_t, income_states_f, r
 	while diff > tol:
 		diff = 0
 
-		mu_cons_fut = ((1+rate) * action_states + income_states_f - policy_guess)**(-params["risk_aver"])
-		
+		mu_cons_fut = ((1+rate) * action_states + income_states - policy_guess)**(-params["risk_aver"])
 		Ecf = np.matmul(mu_cons_fut, P.T)
-		cons_today = (disc_factor * (1+rate) * Ecf)**(-1/params["risk_aver"])
-		endog_assets = 1/(1+rate) * (cons_today + action_states - income_states_t) # Mapping from action to assets. Want mapping from assets to action. 
+		cons_today = (params["disc_fact"] * (1+rate) * Ecf)**(-1/params["risk_aver"])
+		endog_assets = 1/(1+rate) * (cons_today + action_states - income_states) # Mapping from action to assets. Want mapping from assets to action. 
 		policy_guess_upd = np.empty(policy_guess.shape)
 		for s in range(income_n):
 			# Invert the mapping. Extrapolate outside range using borrowing constraint and max assets in exogenous grid. 
@@ -125,16 +123,6 @@ def egm(V, transition_matrix, action_states, income_states_t, income_states_f, r
 
 		reward = (np.power(cons_today, 1-params["risk_aver"]))/(1-params["risk_aver"])
 		reward[cons_today<0] = -np.inf 
-		V_upd = reward + disc_factor * V
+		V_upd = reward + params["disc_fact"] * V
 		V = np.copy(V_upd)
-	return(V, policy_guess, endog_assets)
-
-
-
-
-
-
-
-
-
-
+	return(V, policy_guess)
