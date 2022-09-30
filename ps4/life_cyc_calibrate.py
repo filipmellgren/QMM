@@ -17,11 +17,11 @@ def calibrate_life_cyc(income_permamence):
 	"perm_inc_dim": 5,
 	"trans_inc_dim": 2,
 	"action_size": 1000,
-	"n_hh": 5000
+	"n_hh": 5000,
+	"min_asset": 0,
+	"max_asset": 80
 	}
 
-	MIN_ASSETS = 0
-	MAX_ASSETS = 80
 
 	N = params["N_ret"]
 
@@ -44,8 +44,8 @@ def calibrate_life_cyc(income_permamence):
 	params["income_shock"] = np.kron(np.array([1, 0.4]), np.exp(perm_inc)).flatten()
 
 	params["action_states"] = np.logspace(
-		start = MIN_ASSETS, 
-		stop = np.log10(MAX_ASSETS - MIN_ASSETS+1), 
-		num = params['action_size']) + MIN_ASSETS -1
+		start = params["min_asset"], 
+		stop = np.log10(params["max_asset"] - params["min_asset"]+1), 
+		num = params['action_size']) + params["min_asset"] -1
 
 	return(params)
