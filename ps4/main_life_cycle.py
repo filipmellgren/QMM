@@ -114,11 +114,7 @@ shock_matrix_ix = create_shock_panel(params, min_age, max_age, params["income_sh
 state_dict = index_to_value_dict(income_states_ix, params["income_shock"])
 state_dict[-100] = np.nan # dead people
 shock_matrix = vec_translate(shock_matrix_ix, state_dict)
-shock_matrix.shape
 
-
-# for hh in range(n_hh):
-#@njit()params["action_states"]
 def simulate_hh(n_hh, years, shock_matrix, income_states, endog_asset_states, pol_mats, min_age, max_age, max_work_age, params):
 	def initiate_panel(years, n_hh):
 		panel = np.empty((years, n_hh))
@@ -168,7 +164,7 @@ def simulate_hh(n_hh, years, shock_matrix, income_states, endog_asset_states, po
 	return(hh_panel_y, hh_panel_a, hh_panel_s, hh_panel_c)
 
 death_year = params["N_work"] + params["N_ret"] -1
-inc_panel, ass_panel, save_panel, cons_panel = simulate_hh(500, death_year, shock_matrix, params["income_shock"], endog_asset_states, pol_mats, min_age,  max_age, max_work_age, params)
+inc_panel, ass_panel, save_panel, cons_panel = simulate_hh(5000, death_year, shock_matrix, params["income_shock"], endog_asset_states, pol_mats, min_age,  max_age, max_work_age, params)
 
 # Part 3, plots
 def plot_series(vector, label_dict):
@@ -204,29 +200,43 @@ fig.write_image('figures/fraction_alive.png')
 
 
 # Growth in average log consumption and average log income from j = 1 to the maximum lifecycle value
-
+# What does he even mean?
 # Cross-sectional variance of log consumption log income as households age
+cons_var = np.nanvar(np.log(cons_panel), axis = 1)
+inc_var = np.nanvar(np.log(inc_panel), axis = 1)
+var_mat = np.array([cons_var, inc_var]).T
+df = pd.DataFrame(var_mat, columns = ["Consumption", "Income"])
+df["age"] = df.index + min_age
+df = pd.melt(df, id_vars = "age", value_vars = ["Consumption", "Income"])
+fig = px.line(df, x="age", y="value", color = "variable", 
+	template = 'plotly_white', labels = dict(age = "Age", value="Variance"))
+fig.update_layout(title = "Household Heterogeneity")
+fig.write_image('figures/hh_heterogeneity.png')
+fig.show()
 
 # Part 4 insurance questions
-
 # Construct objects below using all households in all time periods
-phi = 1 - np.cov(D_cons, pis)/np.cov(pis, pis)
+
 
 # Vary rho, make sure this is a function
+rhos = np.linspace(0.7, 0.995, 10)
+insurance_rel = []
+for rho in rhos:
+	params = calibrate_life_cyc(rho)
+	pol_mats, endog_asset_states = lc_policies(params)
+	inc_panel, ass_panel, save_panel, cons_panel = simulate_hh(5000, death_year, shock_matrix, params["income_shock"], endog_asset_states, pol_mats, min_age,  max_age, max_work_age, params)
+	diff_cons = np.diff(cons_panel[0:40], axis = 0)
+	shocks = shock_matrix[0:39]
+	cov_ = np.cov(diff_cons.flatten(), shocks.flatten())[0,1]
+	var_ = np.var(shocks)
+	phi = 1 - cov_/var_
+	insurance_rel.append((rho, phi))
 
-
-## TMP
-age_index = 35 - 25 - 1
-asset_index = 550 - 1
-det_inc = params["determ_inc"]
-
-income_35 = np.asarray(det_inc[det_inc.age == 35].income) * params["income_shock"]
-endog_asset_states[age_index, asset_index+1] * (1+ params["rate"]) + income_35 - pol_mats[age_index, asset_index,:]
-endog_asset_states[:,:,:].shape
-
-endog_asset_states[10,:,2] 
-
-for x in reversed(range(min_age, max_age-1)):
-	print(x-25, x-min_age+1, x)
+df = pd.DataFrame(insurance_rel, columns = ["Income shock persistence (ar1)", "phi"])
+df["One minus phi"] = 1 - df["phi"]
+fig = px.line(df, x="Income shock persistence (ar1)", y= "One minus phi", 
+	template = 'plotly_white')
+fig.show()
+fig.write_image('figures/insurance_question.png')
 
 
