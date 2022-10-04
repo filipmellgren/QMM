@@ -125,7 +125,7 @@ def simulate_hh(n_hh, years, shock_matrix, income_states, endog_asset_states, po
 	hh_panel_s = initiate_panel(years, n_hh)
 	hh_panel_c = initiate_panel(years, n_hh)
 	exog_grid =np.repeat(np.expand_dims(params["action_states"], axis = 1), params["income_shock"].shape[0], axis = 1)
-	
+	np.random.seed(1)  
 	for hh in range(n_hh):
 		
 		initial_assets = min(np.exp(np.random.normal(-2.5, np.sqrt(4))), np.exp(-2.5 + 3 * 2))
@@ -225,8 +225,8 @@ for rho in rhos:
 	params = calibrate_life_cyc(rho)
 	pol_mats, endog_asset_states = lc_policies(params)
 	inc_panel, ass_panel, save_panel, cons_panel = simulate_hh(5000, death_year, shock_matrix, params["income_shock"], endog_asset_states, pol_mats, min_age,  max_age, max_work_age, params)
-	diff_cons = np.diff(cons_panel[0:40], axis = 0)
-	shocks = shock_matrix[0:39]
+	diff_cons = np.diff(cons_panel[0:41], axis = 0) # ix_0 = ix_1 - ix_0
+	shocks = shock_matrix[1:-19]
 	cov_ = np.cov(diff_cons.flatten(), shocks.flatten())[0,1]
 	var_ = np.var(shocks)
 	phi = 1 - cov_/var_
