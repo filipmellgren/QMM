@@ -1,6 +1,7 @@
 import numpy as np
 from numba import njit
-
+import scipy as sp
+import ipdb
 def lc_policies(params, transition_matrix):
 	'''
 	TODO: implement possibility for bequests in one period and update transition matrix basex on this.
@@ -27,20 +28,22 @@ def lc_policies(params, transition_matrix):
 		income_states_next = np.copy(income_states)
 		# TODO add potential bequest shock factor
 		
-		if t > max_work_age:
+		if t > max_work_age + 1:
 			G = G_ret
-			income_states = np.ones(params["income_shock"].shape[0]) *G
+			income_states = G * np.kron(np.ones(params["income_shock"].shape[0]), np.ones(params["bequest_grid"].shape[0])).flatten()
 
-		if t == max_work_age:
-			G = params["determ_inc"][params["determ_inc"].age == t].income.iloc[0]
-			#income_states = np.kron(params["income_shock"], params["bequest_grid"]).flatten()
-			income_states = np.kron(params["income_shock"], np.ones(params["bequest_grid"].shape[0])).flatten()
-			income_states = params["income_shock"] * G
+		if t == max_work_age + 1:
+			G = G_ret
+			# First get right shape of matrix
+			income_states = np.kron(np.ones(params["income_shock"].shape[0]), np.ones(params["bequest_grid"].shape[0]))
+			# Then add the bequests
+			income_states = income_states + np.tile(params["bequest_grid"],params["income_shock"].shape[0])
+			income_states = income_states * G
 
-		if t < max_work_age:
+		if t < max_work_age + 1:
 			G = params["determ_inc"][params["determ_inc"].age == t].income.iloc[0]
 			income_states = np.kron(params["income_shock"], np.ones(params["bequest_grid"].shape[0])).flatten()
-			income_states = params["income_shock"] * G
+			income_states = income_states * G
 		
 		pol = EGM(disc_factor, params["exog_grid"], income_states, income_states_next, pol,transition_matrix, params)
 		pol_mats.append(pol)
@@ -56,9 +59,11 @@ def EGM(disc_factor, action_states, income_states, income_states_next, pol, P, p
 	P: transition matrix. Rows indicate from, columns indicate to. Row stochastic matrix. 
 	TODO: should allow for different utility functions
 	'''
+	
 	mu_cons_fut = ((1+params["rate"]) * action_states + income_states_next - pol)**(-params["risk_aver"])
 	Ecf = np.matmul(mu_cons_fut, P.T)
 	cons_today = (disc_factor * (1+params["rate"]) * Ecf)**(-1/params["risk_aver"])
+	
 	assets_endog = 1/(1+params["rate"]) * (cons_today + action_states - income_states)
 	pol = np.empty(pol.shape)
 	for s in range(income_states.shape[0]):
@@ -67,9 +72,9 @@ def EGM(disc_factor, action_states, income_states, income_states_next, pol, P, p
 
 
 
-def create_shock_panel(params, min_age, max_age, income_states):
+def create_shock_panel(params, transition_matrix, min_age, max_age, income_states):
 	''' Simulates based on indices, then convert to values
-	TODO: numba implement this one
+	# TODO: add bequest shocks
 	'''
 	income_states_ix = np.arange(params["income_shock"].shape[0])
 	n_hh = params["n_hh"]
@@ -77,11 +82,10 @@ def create_shock_panel(params, min_age, max_age, income_states):
 
 	shock_matrix_ix = np.empty((years, n_hh), dtype = int) 
 	shock_matrix_ix[0, :] = np.argmin(abs(income_states - 1)) # First income is 1
-	trans_matrix = params["transition_matrix"]
 
 	for hh in range(n_hh):
 		for y in range(1, years):
-			trans_prob = trans_matrix[shock_matrix_ix[y-1, hh]] # Index at previous state for conditional probabilities
+			trans_prob = transition_matrix[shock_matrix_ix[y-1, hh]] # Index at previous state for conditional probabilities
 			shock_matrix_ix[y, hh] = np.random.choice(income_states_ix, p = trans_prob)
 			dies = np.random.uniform() > params["surv_prob"][y]
 			if dies:
@@ -101,10 +105,21 @@ def index_to_value_dict(index, values):
 def vec_translate(ix, state_dict):    
 	return np.vectorize(state_dict.__getitem__)(ix)
 
-def simulate_hh(n_hh, shock_matrix, pol_mats, params):
+
+def get_bequest_transition_matrix(guess, params):
+	bequest_grid = params["bequest_grid"]
+	bequest_grid_mid_points = bequest_grid + np.mean(np.diff(bequest_grid))/2 # Add half step size
+	bequest_shock_cdf= sp.stats.lognorm.cdf(bequest_grid_mid_points, s = guess[2], loc = guess[1])
+	bequest_shock_probs = np.diff(np.append(0, bequest_shock_cdf)) # TODO: almost 1 what to do?
+	bequest_shock_probs = bequest_shock_probs / np.sum(bequest_shock_probs) # Scale to 1
+	bequest_trans_mat = np.tile(bequest_shock_probs, (bequest_shock_probs.shape[0], 1))
+	transition_matrix = np.kron(params["transition_matrix"], bequest_trans_mat)
+	return(transition_matrix, bequest_shock_probs)
+
+def simulate_hh(n_hh, income_states, shock_matrix, pol_mats, params):
 	'''
-	TODO: keep track of bequests. Basically, sum last period asset value of dying people over time. 
 	TODO: make easier to read by creating a multidimensional array
+	# TODO: referencing the income states like I do with index seems weak. 
 	'''
 	years = params["N_work"] + params["N_ret"] -1
 	def initiate_panel(years, n_hh):
@@ -113,13 +128,12 @@ def simulate_hh(n_hh, shock_matrix, pol_mats, params):
 		return(panel)
 	min_age = params["min_age"]
 	max_work_age = params["max_work_age"]
-	income_states = params["income_shock"]
 
 	hh_panel_y = initiate_panel(years, n_hh)
 	hh_panel_a = initiate_panel(years, n_hh)
 	hh_panel_s = initiate_panel(years, n_hh)
 	hh_panel_c = initiate_panel(years, n_hh)
-	exog_grid =np.repeat(np.expand_dims(params["action_states"], axis = 1), params["income_shock"].shape[0], axis = 1)
+	exog_grid =np.repeat(np.expand_dims(params["action_states"], axis = 1), income_states.shape[0], axis = 1)
 	np.random.seed(1)  
 	for hh in range(n_hh):
 		
