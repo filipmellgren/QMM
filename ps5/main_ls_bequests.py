@@ -16,14 +16,15 @@ def equilibrium_distance(guess, shocks, params, phi1):
 	''' Want to find a fixed point, that's our equilibrium
 
 	'''
-	transition_matrix, bequest_shock_probs = get_bequest_transition_matrix(guess, params)
+	tmp, bequest_shock_probs = get_bequest_transition_matrix(guess, params)
+	
 	
 	# One income state vector for each year
-	income_states = create_income_states(params["income_shock"], params["determ_inc"], params["bequest_grid"], params)
+	income_states = create_income_states(params["income_shock"], params["determ_inc"], params)
 
 	hh_bequests = create_hh_bequests(bequest_shock_probs, guess, params)
 
-	policies = lc_policies(params, income_states, transition_matrix, phi1)	
+	policies = lc_policies(params, income_states, params["transition_matrix"], phi1)	
 
 	hh_panel_y, hh_panel_a, hh_panel_s, hh_panel_c = simulate_hh(params["n_hh"], income_states, shocks, policies, hh_bequests, params)
 

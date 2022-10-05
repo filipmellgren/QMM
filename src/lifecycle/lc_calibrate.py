@@ -51,7 +51,7 @@ def calibrate_life_cyc(income_permamence, phi1):
 		stop = np.log10(params["max_asset"] - params["min_asset"]+1), 
 		num = params['action_size']) + params["min_asset"] -1
 	
-	params["exog_grid"] = np.repeat(np.expand_dims(params["action_states"], axis = 1), params["income_shock"].shape[0] * params["bequest_grid"].shape[0], axis = 1)
+	params["exog_grid"] = np.repeat(np.expand_dims(params["action_states"], axis = 1), params["income_shock"].shape[0], axis = 1)
 
 	np.kron(params["income_shock"], params["bequest_grid"]).flatten()
 
@@ -61,11 +61,10 @@ def calibrate_life_cyc(income_permamence, phi1):
 
 	# BELOW TODO
 	G_ret = params["determ_inc"].income.iloc[-1] * params["pensions_rr"]
-	params["terminal_income_states"] = np.ones(params["income_shock"].shape[0] * params["bequest_grid"].shape[0]) * G_ret
-	params["terminal_policy"] = np.zeros((params["action_size"], params["income_shock"].shape[0] * params["bequest_grid"].shape[0])) # Last policy is to save nothing
+	params["terminal_income_states"] = np.ones(params["income_shock"].shape[0]) * G_ret
 
 	if phi1 == 0:
-		params["terminal_policy"] = np.zeros((params["action_size"], params["income_shock"].shape[0] * params["bequest_grid"].shape[0])) # Last policy is to save nothing
+		params["terminal_policy"] = np.zeros((params["action_size"], params["income_shock"].shape[0])) # Last policy is to save nothing
 		return(params)
 		
 	# Solve for terminal policy

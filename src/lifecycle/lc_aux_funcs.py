@@ -27,7 +27,7 @@ def lc_policies(params, income_states_matrix, transition_matrix, phi1):
 		income_states_next = np.copy(income_states)
 		
 		income_states = income_states_matrix[t]
-
+		
 		mu_cons_fut = ((1+params["rate"]) * params["exog_grid"] + income_states_next - pol)**(-params["risk_aver"])
 		
 		Bs = (1-params["estate_tax"]) * params["exog_grid"]
@@ -46,7 +46,7 @@ def lc_policies(params, income_states_matrix, transition_matrix, phi1):
 	return(pol_mats)
 
 
-def create_income_states(mltp_shock, det_income, add_shock, params):
+def create_income_states(mltp_shock, det_income, params):
 	max_work_age = params["max_work_age"]
 	retirement = params["determ_inc"].income.iloc[-1] * params["pensions_rr"]
 	income_states_mat = []
@@ -55,18 +55,14 @@ def create_income_states(mltp_shock, det_income, add_shock, params):
 	for t in range(years):
 		if t >= max_work_age - params["min_age"] + 1:
 			G = retirement
-			income_states = G * np.kron(np.ones(mltp_shock.shape[0]), np.ones(add_shock.shape[0])).flatten()
-
-		if False: #t == max_work_age - params["min_age"] + 1:
-			G = retirement
-			income_states = G * np.kron(np.ones(mltp_shock.shape[0]), np.ones(add_shock.shape[0])).flatten()
-			income_states = income_states + np.tile(add_shock, mltp_shock.shape[0])
+			income_states = G * np.ones(mltp_shock.shape[0])
 
 		if t < max_work_age - params["min_age"] + 1:
 			
 			G = params["determ_inc"][params["determ_inc"].age == t + params["min_age"] ].income.iloc[0]
-			income_states = np.kron(mltp_shock, np.ones(add_shock.shape[0])).flatten()
+			income_states = mltp_shock
 			income_states = income_states * G
+
 		income_states_mat.append(income_states)
 	income_states_mat = np.stack(income_states_mat)
 
