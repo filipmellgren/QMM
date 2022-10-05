@@ -103,9 +103,9 @@ def create_hh_bequests(bequest_shock_probs, guess, params):
 	for hh in range(params["n_hh"]):
 		y = params["N_work"] # When everyone is bequested in this economy
 		bequest_size = np.argmin(np.abs(np.random.uniform() - bequest_shock_probs))	
-		
 		bequest = params["bequest_grid"][bequest_size] 
 		bequest = min(bequest, guess[1] + 3 * np.sqrt(guess[2])) * (1 - params["estate_tax"]) 
+		bequest = (np.random.uniform() < guess[0]) * bequest # with prob 1-guess[0], no bequest :(
 		hh_bequests.append(bequest)
 	hh_bequests = np.stack(hh_bequests)
 	return(hh_bequests)
