@@ -36,37 +36,52 @@ def equilibrium_distance(guess, shocks, params, phi1):
 
 	return(np.sum((guess - np.array([pb, mu, sigma2]))**2), hh_panel_y, hh_panel_a, hh_panel_s, hh_panel_c, bequests, death_ix)
 
-if name == "__main__":
-
-	params = calibrate_life_cyc(0.97, phi1 = 0)
-	
-	economy_shocks = create_shock_panel(params, params["transition_matrix"], params["min_age"], params["max_age"])
-
-	guess0 = np.array([0.548, 2.23, 9.048])
-	
-	phi1  = 0
-
-	# TODO return economy variables for plotting. Turn itno lambda funciton. 
-
-	outcome = sp.optimize.minimize(fun = lambda x: equilibrium_distance(x, economy_shocks, params, phi1)[0], x0 = guess0, method = "Nelder-Mead")
-
-	equilibrium_vector = outcome["x"]
 
 
-	diff, hh_panel_y, hh_panel_a, hh_panel_s, hh_panel_c, bequests, death_ix = equilibrium_distance(guess0, economy_shocks, params, phi1)
+params = calibrate_life_cyc(0.97, phi1 = 0)
+
+economy_shocks = create_shock_panel(params, params["transition_matrix"], params["min_age"], params["max_age"])
+
+guess0 = np.array([ 0.37752773,  3.34657351, 17.97062499])
+
+phi1  = 0
+
+# TODO return economy variables for plotting. Turn itno lambda funciton. 
+
+outcome = sp.optimize.minimize(fun = lambda x: equilibrium_distance(x, economy_shocks, params, phi1)[0], x0 = guess0, method = "Nelder-Mead")
+
+equilibrium_vector = outcome["x"]
 
 
-	def plot_series(vector, label_dict):
-		df = pd.DataFrame(np.nanmean(vector, axis = 1), columns = ["yvar"])
-		df["age"] = df.index #+ min_age
-		fig = px.line(df, x="age", y="yvar", template = 'plotly_white', labels = label_dict)
-		return(fig)
+diff, hh_panel_y, hh_panel_a, hh_panel_s, hh_panel_c, bequests, death_ix = equilibrium_distance(guess0, economy_shocks, params, phi1)
+
+
+def plot_series(vector, label_dict):
+	df = pd.DataFrame(np.nanmean(vector, axis = 1), columns = ["yvar"])
+	df["age"] = df.index #+ min_age
+	fig = px.line(df, x="age", y="yvar", template = 'plotly_white', labels = label_dict)
+	return(fig)
 
 fig = plot_series(hh_panel_c, dict(age = "Age", yvar="# Goods"))
 fig.update_layout(title = "Average consumption")
 
+fig = plot_series(hh_panel_y, dict(age = "Age", yvar="# Goods"))
+fig.update_layout(title = "Average income")
 
-economy_shocks[economy_shocks>100]
-shocks = economy_shocks
+fig = plot_series(hh_panel_a, dict(age = "Age", yvar="# assets"))
+fig.update_layout(title = "Average Assets")
 
-income_states.shape[1]
+guess = guess0
+hh_bequests = create_hh_bequests(bequest_shock_probs, guess, params)
+fig = px.histogram(hh_bequests)
+fig.show()
+
+np.argmax(hh_bequests)
+np.argmax(hh_panel_c[40,:])
+hh_panel_c[:,1626]
+hh_panel_a[:,1626]
+income_states[41,:]
+# income state 41 is special
+
+
+

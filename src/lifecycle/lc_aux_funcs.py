@@ -20,13 +20,13 @@ def lc_policies(params, income_states_matrix, transition_matrix, phi1):
 
 	pol = terminal_policy
 	income_states = terminal_income
-	
-	for t in reversed(range(min_age, max_age-1)):
+	years = params["N_work"] + params["N_ret"]
+	for t in reversed(range(years-1)):
 
-		disc_factor = params["disc_fact"] * params["surv_prob"][t-min_age+1]
+		disc_factor = params["disc_fact"] * params["surv_prob"][t+1]
 		income_states_next = np.copy(income_states)
 		
-		income_states = income_states_matrix[t - min_age]
+		income_states = income_states_matrix[t]
 
 		mu_cons_fut = ((1+params["rate"]) * params["exog_grid"] + income_states_next - pol)**(-params["risk_aver"])
 		
@@ -35,6 +35,7 @@ def lc_policies(params, income_states_matrix, transition_matrix, phi1):
 		mu_beq_fut = (1 - params["estate_tax"]) * (1 - params["risk_aver"]) * phi1 *(1 + Bs/params["phi2"])**(-params["risk_aver"])/params["phi2"]
 
 		mu_fut = mu_cons_fut + mu_beq_fut
+
 
 		pol = EGM(mu_fut, disc_factor, params["exog_grid"], income_states, income_states_next, pol,transition_matrix, params)
 		pol_mats.append(pol)
@@ -47,19 +48,18 @@ def lc_policies(params, income_states_matrix, transition_matrix, phi1):
 
 def create_income_states(mltp_shock, det_income, add_shock, params):
 	max_work_age = params["max_work_age"]
-	retirement = det_income.income.iloc[-1] * params["pensions_rr"]
+	retirement = params["determ_inc"].income.iloc[-1] * params["pensions_rr"]
 	income_states_mat = []
 	years = params["N_work"] + params["N_ret"]
 
 	for t in range(years):
-		if t > max_work_age - params["min_age"] + 1:
+		if t >= max_work_age - params["min_age"] + 1:
 			G = retirement
 			income_states = G * np.kron(np.ones(mltp_shock.shape[0]), np.ones(add_shock.shape[0])).flatten()
 
-		if t == max_work_age - params["min_age"] + 1:
+		if False: #t == max_work_age - params["min_age"] + 1:
 			G = retirement
-			income_states = np.kron(mltp_shock, np.ones(add_shock.shape[0])).flatten()
-			income_states = income_states * G
+			income_states = G * np.kron(np.ones(mltp_shock.shape[0]), np.ones(add_shock.shape[0])).flatten()
 			income_states = income_states + np.tile(add_shock, mltp_shock.shape[0])
 
 		if t < max_work_age - params["min_age"] + 1:
@@ -79,7 +79,7 @@ def create_hh_bequests(bequest_shock_probs, guess, params):
 		bequest_size = np.argmin(np.abs(np.random.uniform() - bequest_shock_probs))	
 		
 		bequest = params["bequest_grid"][bequest_size] 
-		bequest = min(bequest, np.exp(guess[1] + 3 * np.sqrt(guess[2]))) * (1 - params["estate_tax"]) 
+		bequest = min(bequest, guess[1] + 3 * np.sqrt(guess[2])) * (1 - params["estate_tax"]) 
 		hh_bequests.append(bequest)
 	hh_bequests = np.stack(hh_bequests)
 	return(hh_bequests)
@@ -162,7 +162,9 @@ def simulate_hh(n_hh, income_states, shock_matrix, pol_mats, hh_bequests, params
 	hh_panel_a = initiate_panel(years, n_hh)
 	hh_panel_s = initiate_panel(years, n_hh)
 	hh_panel_c = initiate_panel(years, n_hh)
-	exog_grid =np.repeat(np.expand_dims(params["action_states"], axis = 1), income_states.shape[1], axis = 1)
+	
+	exog_grid = params["exog_grid"] 
+
 	np.random.seed(1)  
 	for hh in range(n_hh):
 		
@@ -191,13 +193,14 @@ def sim_years(hh, asset_next, years, income_vector, income_states, pension_facto
 		assets = asset_next
 		if np.isnan(shock_matrix[y, hh]):
 			break # dead TODO: report back amount of assets perhaps
-		if y + min_age > max_work_age:
+		if y + min_age > max_work_age + 1:
 			G = income_vector[-1] * pension_factor
 			income = G
-		if y + min_age == max_work_age:
+		if y + min_age == max_work_age + 1:
 			G = income_vector[-1] * pension_factor
-			income = G + bequests
-		if y + min_age < max_work_age:
+			income = G #+ bequests
+			assets += bequests
+		if y + min_age < max_work_age + 1:
 			G = income_vector[y]
 			income = G * shock_matrix[y, hh] 
 

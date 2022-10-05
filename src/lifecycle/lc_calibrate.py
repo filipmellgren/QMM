@@ -44,7 +44,7 @@ def calibrate_life_cyc(income_permamence, phi1):
 	params["income_shock"] = np.kron(np.array([1, 0.4]), np.exp(perm_inc)).flatten()
 
 	params["bequest_grid"] = np.linspace(params["min_asset"],params["max_asset"], params["bequest_states_n"])
-	
+
 
 	params["action_states"] = np.logspace(
 		start = params["min_asset"], 
@@ -52,6 +52,8 @@ def calibrate_life_cyc(income_permamence, phi1):
 		num = params['action_size']) + params["min_asset"] -1
 	
 	params["exog_grid"] = np.repeat(np.expand_dims(params["action_states"], axis = 1), params["income_shock"].shape[0] * params["bequest_grid"].shape[0], axis = 1)
+
+	np.kron(params["income_shock"], params["bequest_grid"]).flatten()
 
 	params["min_age"] = params["determ_inc"].age.min()
 	params["max_work_age"] = params["determ_inc"].age.max()
