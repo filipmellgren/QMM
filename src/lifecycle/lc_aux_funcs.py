@@ -89,7 +89,17 @@ def create_income_states(mltp_shock, det_income, add_shock, params):
 
 	return(income_states_mat)
 
-
+def create_hh_bequests(bequest_shock_probs, guess, params):
+	hh_bequests = []
+	for hh in range(params["n_hh"]):
+		y = params["N_work"] # When everyone is bequested in this economy
+		bequest_size = np.argmin(np.abs(np.random.uniform() - bequest_shock_probs))	
+		
+		bequest = params["bequest_grid"][bequest_size] 
+		bequest = min(bequest, np.exp(guess[1] + 3 * np.sqrt(guess[2]))) * (1 - params["estate_tax"]) 
+		hh_bequests.append(bequest)
+	hh_bequests = np.stack(hh_bequests)
+	return(hh_bequests)
 
 def EGM(mu_cons_fut, disc_factor, action_states, income_states, income_states_next, pol, P, params):
 	'''

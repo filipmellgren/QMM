@@ -3,7 +3,7 @@ import	scipy as sp
 import numpy as np
 import sys
 sys.path.append('../')
-from src.lifecycle.lc_aux_funcs import create_shock_panel, lc_policies, simulate_hh, get_bequest_transition_matrix, create_income_states
+from src.lifecycle.lc_aux_funcs import create_shock_panel, lc_policies, simulate_hh, get_bequest_transition_matrix, create_income_states, create_hh_bequests
 from src.lifecycle.lc_calibrate import calibrate_life_cyc
 import pandas as pd
 import plotly.express as px
@@ -21,21 +21,11 @@ def equilibrium_distance(guess, shocks, params, phi1):
 	# One income state vector for each year
 	income_states = create_income_states(params["income_shock"], params["determ_inc"], params["bequest_grid"], params)
 
+	hh_bequests = create_hh_bequests(bequest_shock_probs, guess, params)
 
-	policies = lc_policies(params, income_states, transition_matrix, phi1)
+	policies = lc_policies(params, income_states, transition_matrix, phi1)	
 
-	# Add bequest shocks
-	# TODO: turn into function
-	hh_bequests = []
-	for hh in range(params["n_hh"]):
-		y = params["N_work"] # When everyone is bequested in this economy
-		bequest_size = np.argmin(np.abs(np.random.uniform() - bequest_shock_probs))	
-		
-		bequest = params["bequest_grid"][bequest_size] 
-		bequest = min(bequest, np.exp(guess[1] + 3 * np.sqrt(guess[2]))) * (1 - params["estate_tax"]) 
-		hh_bequests.append(bequest)
-
-	hh_panel_y, hh_panel_a, hh_panel_s, hh_panel_c = simulate_hh(shocks.shape[1], income_states, shocks, policies, hh_bequests, params)
+	hh_panel_y, hh_panel_a, hh_panel_s, hh_panel_c = simulate_hh(params["n_hh"], income_states, shocks, policies, hh_bequests, params)
 
 	death_ix = pd.DataFrame(hh_panel_s).apply(pd.Series.last_valid_index) 
 	bequests = hh_panel_s[death_ix, death_ix.index]
