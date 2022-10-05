@@ -2,7 +2,7 @@ import numpy as np
 from numba import njit
 import scipy as sp
 import ipdb
-def lc_policies(params, income_states_matrix, transition_matrix, phi1):
+def lc_policies(params, income_states_matrix, transition_matrix, bequest_shock_probs, phi1, guess):
 	'''
 	TODO: implement possibility for bequests in one period and update transition matrix basex on this.
 	An idea is to do the trick of extending the income states by factor 20, but keeping values the same in most periods. 
@@ -27,17 +27,22 @@ def lc_policies(params, income_states_matrix, transition_matrix, phi1):
 		income_states_next = np.copy(income_states)
 		
 		income_states = income_states_matrix[t]
-		
+
 		mu_cons_fut = ((1+params["rate"]) * params["exog_grid"] + income_states_next - pol)**(-params["risk_aver"])
 		
 		Bs = (1-params["estate_tax"]) * params["exog_grid"]
 
 		mu_beq_fut = (1 - params["estate_tax"]) * (1 - params["risk_aver"]) * phi1 *(1 + Bs/params["phi2"])**(-params["risk_aver"])/params["phi2"]
 
-		mu_fut = mu_cons_fut + mu_beq_fut
+		mu_fut = mu_cons_fut + mu_beq_fut 
 
+		Ecf = np.matmul(mu_fut, transition_matrix.T)
+		
+		if t + min_age == max_work_age:
+			
+			Ecf = bequested_ecf(mu_cons_fut, pol, guess, bequest_shock_probs, transition_matrix, params)
 
-		pol = EGM(mu_fut, disc_factor, params["exog_grid"], income_states, income_states_next, pol,transition_matrix, params)
+		pol = EGM(Ecf, disc_factor, params["exog_grid"], income_states, pol,transition_matrix, params)
 		pol_mats.append(pol)
 		
 	pol_mats.reverse()
@@ -45,6 +50,31 @@ def lc_policies(params, income_states_matrix, transition_matrix, phi1):
 
 	return(pol_mats)
 
+def bequested_ecf(mu_cons_fut, pol, guess, bequest_shock_probs, transition_matrix, params):
+	mu_fut_no_bq = np.tile(mu_cons_fut[:,0], (20,1)).T # This with probability guess[0]
+	# TODO: make work for phi1 > 0
+	G_ret = params["determ_inc"].income.iloc[-1] * params["pensions_rr"]
+	
+	# Policy maps from asset today to asset tomorrow
+	pol_vec = pol[:,0]
+	# Interpolate from asset value + bequest to asset_tomorrow
+	
+	pol_beq = np.empty((params["action_states"].shape[0],params["bequest_grid"].shape[0]))
+	for b in range(params["bequest_grid"].shape[0]):
+		pol_beq[:,b] = np.interp(params["action_states"] + params["bequest_grid"][b], params["action_states"], pol_vec)
+		# params["action_states"] 1000 by 1
+		# params["bequest_grid"] 20 by 1
+		# pol_beq = 1000 by 20
+	asset_grid_beq = np.tile(params["action_states"], (params["bequest_grid"].shape[0],1)).T
+	bequests = np.tile(params["bequest_grid"], (params["action_states"].shape[0],1))
+
+	mu_cons_fut = ((1+params["rate"]) * asset_grid_beq + bequests + G_ret - pol_beq)**(-params["risk_aver"])
+
+	mu_fut = (1-guess[0]) * mu_fut_no_bq + (guess[0])*(mu_cons_fut)
+
+	Ecf = np.matmul(mu_fut, bequest_shock_probs.T) # 1000 x 1 object
+	Ecf = np.tile(Ecf, (transition_matrix.shape[0],1)).T # Convert back to "normal" shape
+	return(Ecf)
 
 def create_income_states(mltp_shock, det_income, params):
 	max_work_age = params["max_work_age"]
@@ -80,20 +110,21 @@ def create_hh_bequests(bequest_shock_probs, guess, params):
 	hh_bequests = np.stack(hh_bequests)
 	return(hh_bequests)
 
-def EGM(mu_cons_fut, disc_factor, action_states, income_states, income_states_next, pol, P, params):
+def EGM(Ecf, disc_factor, action_states, income_states, pol, P, params):
 	'''
 	P: transition matrix. Rows indicate from, columns indicate to. Row stochastic matrix. 
 	TODO: should allow for different utility functions
 	'''
 	
-	Ecf = np.matmul(mu_cons_fut, P.T)
 	cons_today = (disc_factor * (1+params["rate"]) * Ecf)**(-1/params["risk_aver"])
 	
 	assets_endog = 1/(1+params["rate"]) * (cons_today + action_states - income_states)
 	pol = np.empty(pol.shape)
 	for s in range(income_states.shape[0]):
 		pol[:,s] = np.interp(x = action_states[:,s], xp = assets_endog[:,s], fp = action_states[:,s], left = params["min_asset"], right = params["max_asset"])
+	
 	return(pol)
+
 
 
 
