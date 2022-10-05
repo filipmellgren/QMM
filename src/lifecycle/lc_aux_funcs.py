@@ -25,23 +25,6 @@ def lc_policies(params, income_states_matrix, transition_matrix, phi1):
 
 		disc_factor = params["disc_fact"] * params["surv_prob"][t-min_age+1]
 		income_states_next = np.copy(income_states)
-		# TODO add potential bequest shock factor
-		
-		if t > max_work_age + 1:
-			G = G_ret
-			income_states = G * np.kron(np.ones(params["income_shock"].shape[0]), np.ones(params["bequest_grid"].shape[0])).flatten()
-
-		if t == max_work_age + 1:
-			G = G_ret
-			# First get right shape of matrix
-			income_states = np.kron(np.ones(params["income_shock"].shape[0]), np.ones(params["bequest_grid"].shape[0])) * G
-			# Then add the bequests
-			income_states = income_states + np.tile(params["bequest_grid"],params["income_shock"].shape[0])
-
-		if t < max_work_age + 1:
-			G = params["determ_inc"][params["determ_inc"].age == t].income.iloc[0]
-			income_states = np.kron(params["income_shock"], np.ones(params["bequest_grid"].shape[0])).flatten()
-			income_states = income_states * G
 		
 		income_states = income_states_matrix[t - min_age]
 

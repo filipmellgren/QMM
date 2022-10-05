@@ -62,7 +62,7 @@ if name == "__main__":
 		fig = px.line(df, x="age", y="yvar", template = 'plotly_white', labels = label_dict)
 		return(fig)
 
-fig = plot_series(hh_panel_y, dict(age = "Age", yvar="# Goods"))
+fig = plot_series(hh_panel_c, dict(age = "Age", yvar="# Goods"))
 fig.update_layout(title = "Average consumption")
 
 
