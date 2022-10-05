@@ -2,30 +2,30 @@ import numpy as np
 import pandas as pd
 from src.tauchenhussey import tauchenhussey, floden_basesigma 
 
-def calibrate_life_cyc(income_permamence):
+def calibrate_life_cyc(income_permamence, phi1):
 	'''
 	income_permamnence is the AR1 term of the icnome process
 	'''
 	params = {
-	"disc_fact": 0.94,
+	"disc_fact": 0.95,
 	"rate": 0.04,
 	"N_work": 40,
-	"N_ret": 20,
+	"N_ret": 30,
 	"risk_aver": 1.5,
 	"pensions_rr": 0.6,
 	"perm_inc_dim": 5,
 	"trans_inc_dim": 2,
 	"action_size": 1000,
-	"n_hh": 1000,
+	"n_hh": 2000,
 	"min_asset": 0,
-	"max_asset": 80,
-	"bequest_states_n": 20
+	"max_asset": 150,
+	"bequest_states_n": 20,
+	"estate_tax": 0.15,
+	"phi2": 10
 	}
 
 
-	N = params["N_ret"]
-
-	params["surv_prob"] = np.concatenate((np.full((params["N_work"]), 1), np.linspace(1, 0.92, N)), axis = None)
+	params["surv_prob"] = np.concatenate((np.full((params["N_work"]), 1), np.linspace(1, 0.92, params["N_ret"])), axis = None)
 	sigma = np.sqrt(0.015)
 	baseSigma = floden_basesigma(sigma, income_permamence)
 
@@ -43,8 +43,8 @@ def calibrate_life_cyc(income_permamence):
 	params["transition_matrix"] = np.kron(temp_transition_matrix, perm_transition_matrix)
 	params["income_shock"] = np.kron(np.array([1, 0.4]), np.exp(perm_inc)).flatten()
 
-
 	params["bequest_grid"] = np.linspace(params["min_asset"],params["max_asset"], params["bequest_states_n"])
+	
 
 	params["action_states"] = np.logspace(
 		start = params["min_asset"], 
@@ -60,6 +60,16 @@ def calibrate_life_cyc(income_permamence):
 	# BELOW TODO
 	G_ret = params["determ_inc"].income.iloc[-1] * params["pensions_rr"]
 	params["terminal_income_states"] = np.ones(params["income_shock"].shape[0] * params["bequest_grid"].shape[0]) * G_ret
-	params["terminal_assets"] = np.full((params["action_size"], params["income_shock"].shape[0]), 0.01/(1+params["rate"])) # Imposed in the PS
 	params["terminal_policy"] = np.zeros((params["action_size"], params["income_shock"].shape[0] * params["bequest_grid"].shape[0])) # Last policy is to save nothing
+
+	if phi1 == 0:
+		params["terminal_policy"] = np.zeros((params["action_size"], params["income_shock"].shape[0] * params["bequest_grid"].shape[0])) # Last policy is to save nothing
+		return(params)
+		
+	# Solve for terminal policy
+	k = ((1-params["estate_tax"]) * (1 - params["risk_aver"]) * phi1/params["phi2"])**(-1/params["risk_aver"])
+
+	terminal_policy = (-k + asset_grid * (1 + params["rate"]) + income_states)/(1 + (1-params["estate_tax"])/(params["phi2"]) * k)
+	terminal_policy 
+
 	return(params)
