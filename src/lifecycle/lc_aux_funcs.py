@@ -40,7 +40,7 @@ def lc_policies(params, income_states_matrix, transition_matrix, bequest_shock_p
 		
 		if t + min_age == max_work_age:
 			
-			Ecf = bequested_ecf(mu_cons_fut, pol, guess, bequest_shock_probs, transition_matrix, params)
+			Ecf = bequested_ecf(phi1, Ecf,mu_beq_fut, pol, guess, bequest_shock_probs, transition_matrix, params)
 
 		pol = EGM(Ecf, disc_factor, params["exog_grid"], income_states, pol,transition_matrix, params)
 		pol_mats.append(pol)
@@ -50,9 +50,8 @@ def lc_policies(params, income_states_matrix, transition_matrix, bequest_shock_p
 
 	return(pol_mats)
 
-def bequested_ecf(mu_cons_fut, pol, guess, bequest_shock_probs, transition_matrix, params):
-	mu_fut_no_bq = np.tile(mu_cons_fut[:,0], (20,1)).T # This with probability guess[0]
-	# TODO: make work for phi1 > 0
+def bequested_ecf(phi1, Ecf_no_beq, mu_beq_fut, pol, guess, bequest_shock_probs, transition_matrix, params):
+	
 	G_ret = params["determ_inc"].income.iloc[-1] * params["pensions_rr"]
 	
 	# Policy maps from asset today to asset tomorrow
@@ -70,10 +69,15 @@ def bequested_ecf(mu_cons_fut, pol, guess, bequest_shock_probs, transition_matri
 
 	mu_cons_fut = ((1+params["rate"]) * asset_grid_beq + bequests + G_ret - pol_beq)**(-params["risk_aver"])
 
-	mu_fut = (1-guess[0]) * mu_fut_no_bq + (guess[0])*(mu_cons_fut)
+	Bs = (1-params["estate_tax"]) * asset_grid_beq
+	mu_beq_fut = (1 - params["estate_tax"]) * (1 - params["risk_aver"]) * phi1 *(1 + Bs/params["phi2"])**(-params["risk_aver"])/params["phi2"]
+
+	mu_fut = mu_cons_fut + mu_beq_fut 
 
 	Ecf = np.matmul(mu_fut, bequest_shock_probs.T) # 1000 x 1 object
 	Ecf = np.tile(Ecf, (transition_matrix.shape[0],1)).T # Convert back to "normal" shape
+	# Combine with no bequest case
+	Ecf = Ecf_no_beq * (1-guess[0]) + guess[0] * Ecf
 	return(Ecf)
 
 def create_income_states(mltp_shock, det_income, params):

@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from src.tauchenhussey import tauchenhussey, floden_basesigma 
+import ipdb
 
 def calibrate_life_cyc(income_permamence, phi1):
 	'''
@@ -53,8 +54,6 @@ def calibrate_life_cyc(income_permamence, phi1):
 	
 	params["exog_grid"] = np.repeat(np.expand_dims(params["action_states"], axis = 1), params["income_shock"].shape[0], axis = 1)
 
-	np.kron(params["income_shock"], params["bequest_grid"]).flatten()
-
 	params["min_age"] = params["determ_inc"].age.min()
 	params["max_work_age"] = params["determ_inc"].age.max()
 	params["max_age"] =  params["max_work_age"] + params["N_ret"]
@@ -64,13 +63,14 @@ def calibrate_life_cyc(income_permamence, phi1):
 	params["terminal_income_states"] = np.ones(params["income_shock"].shape[0]) * G_ret
 
 	if phi1 == 0:
-		params["terminal_policy"] = np.zeros((params["action_size"], params["income_shock"].shape[0])) # Last policy is to save nothing
+		params["terminal_policy"] = np.zeros((params["action_size"], params["income_shock"].shape[0])) # Last policy is to save nothing. 1000 by 10
 		return(params)
 		
 	# Solve for terminal policy
-	k = ((1-params["estate_tax"]) * (1 - params["risk_aver"]) * phi1/params["phi2"])**(-1/params["risk_aver"])
+	# icnome shock 10 by 1
+	k = ((1-params["estate_tax"]) * (1 - params["risk_aver"]) * phi1/params["phi2"])**(-1/params["risk_aver"]) # scalar
 
-	terminal_policy = (-k + asset_grid * (1 + params["rate"]) + income_states)/(1 + (1-params["estate_tax"])/(params["phi2"]) * k)
-	terminal_policy 
+	terminal_policy = (-k + params["exog_grid"] * (1 + params["rate"]) + G_ret * np.ones(params["exog_grid"].shape))/(1 + (1-params["estate_tax"])/(params["phi2"]) * k)
+	params["terminal_policy"] = terminal_policy
 
 	return(params)

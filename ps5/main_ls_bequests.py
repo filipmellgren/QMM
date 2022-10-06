@@ -28,36 +28,15 @@ def equilibrium_distance(guess, shocks, params, phi1):
 	policies = lc_policies(params, income_states, params["transition_matrix"], bequest_shock_probs, phi1, guess)	
 
 	hh_panel_y, hh_panel_a, hh_panel_s, hh_panel_c = simulate_hh(params["n_hh"], income_states, shocks, policies, hh_bequests, params)
-
+	
 	death_ix = pd.DataFrame(hh_panel_s).apply(pd.Series.last_valid_index) 
-	bequests = hh_panel_s[death_ix, death_ix.index]
+	bequests = hh_panel_s[np.nan_to_num(death_ix,68).astype(int), death_ix.index] # TODO: why are there nan here?
 
 	pb = bequests[bequests == 0].shape[0] / bequests.shape[0]
 	mu = np.mean(bequests[bequests != 0])
 	sigma2 = np.var(bequests[bequests != 0])
 
 	return(np.sum((guess - np.array([pb, mu, sigma2]))**2), hh_panel_y, hh_panel_a, hh_panel_s, hh_panel_c, bequests, death_ix)
-
-
-
-params = calibrate_life_cyc(0.97, phi1 = 0)
-
-economy_shocks = create_shock_panel(params, params["transition_matrix"], params["min_age"], params["max_age"])
-
-guess0 = np.array([ 0.4,  3., 10])
-
-phi1  = 0
-
-diff, hh_panel_y, hh_panel_a, hh_panel_s, hh_panel_c, bequests, death_ix = equilibrium_distance(guess0, economy_shocks, params, phi1)
-
-# TODO return economy variables for plotting. Turn itno lambda funciton. 
-
-outcome = sp.optimize.minimize(fun = lambda x: equilibrium_distance(x, economy_shocks, params, phi1)[0], x0 = guess0, method = "Nelder-Mead")
-
-equilibrium_vector_phi1 = outcome["x"]
-
-diff, hh_panel_y, hh_panel_a, hh_panel_s, hh_panel_c, bequests, death_ix = equilibrium_distance(equilibrium_vector_phi1, economy_shocks, params, phi1)
-
 
 def plot_series(vector, label_dict):
 	df = pd.DataFrame(np.nanmean(vector, axis = 1), columns = ["yvar"])
@@ -71,8 +50,18 @@ def gini(x):
 		total += np.nansum(np.abs(xi - x[i:]))
 	return total / (len(x)**2 * np.nanmean(x))
 
+def plot_bequests(phi1):
+	params = calibrate_life_cyc(0.97, phi1)
+	guess0 = np.array([ 0.4,  3., 10])
+	economy_shocks = create_shock_panel(params, params["transition_matrix"], params["min_age"], params["max_age"])
 
-def plot_bequests(phi1, equilibrium_vector, economy_shocks, params):
+	outcome = sp.optimize.minimize(fun = lambda x: equilibrium_distance(x, economy_shocks, params, phi1)[0], x0 = guess0, method = "Nelder-Mead")
+	equilibrium_vector = outcome["x"]
+	error = outcome["fun"]
+
+	np.savetxt(f'figures/eq_vec_phi1_{phi1}.csv', equilibrium_vector, delimiter=',')
+	np.savetxt(f'figures/nm_error_{phi1}.csv', error, delimiter=',')
+
 	diff, hh_panel_y, hh_panel_a, hh_panel_s, hh_panel_c, bequests, death_ix = equilibrium_distance(equilibrium_vector, economy_shocks, params, phi1)
 
 	fig = plot_series(hh_panel_c, dict(age = "Age", yvar="# Goods"))
@@ -110,6 +99,7 @@ def plot_bequests(phi1, equilibrium_vector, economy_shocks, params):
 	fig.update_layout(title = "Gini")
 	fig.write_image(f'figures/gini_{phi1}.png')
 
+	# TODO make relative to total
 	pct99 = np.nanpercentile(hh_panel_a, 99, axis = 1)
 	pct95 = np.nanpercentile(hh_panel_a, 95, axis = 1)
 	pct80 = np.nanpercentile(hh_panel_a, 80, axis = 1)
@@ -122,4 +112,7 @@ def plot_bequests(phi1, equilibrium_vector, economy_shocks, params):
 	fig.write_image(f'figures/inequality_{phi1}.png')
 	return	
 
-plot_bequests(phi1, equilibrium_vector_phi1, economy_shocks, params)
+plot_bequests(phi1 = 0)
+
+plot_bequests(-10)
+
