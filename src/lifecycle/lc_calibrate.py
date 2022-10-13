@@ -58,7 +58,6 @@ def calibrate_life_cyc(income_permamence, phi1):
 	params["max_work_age"] = params["determ_inc"].age.max()
 	params["max_age"] =  params["max_work_age"] + params["N_ret"]
 
-	# BELOW TODO
 	G_ret = params["determ_inc"].income.iloc[-1] * params["pensions_rr"]
 	params["terminal_income_states"] = np.ones(params["income_shock"].shape[0]) * G_ret
 
@@ -68,9 +67,12 @@ def calibrate_life_cyc(income_permamence, phi1):
 		
 	# Solve for terminal policy
 	# icnome shock 10 by 1
-	k = ((1-params["estate_tax"]) * (1 - params["risk_aver"]) * phi1/params["phi2"])**(-1/params["risk_aver"]) # scalar
+	k = ((1 - params["risk_aver"]) * phi1/params["phi2"])**(-1/params["risk_aver"]) # scalar
 
-	terminal_policy = (-k + params["exog_grid"] * (1 + params["rate"]) + G_ret * np.ones(params["exog_grid"].shape))/(1 + (1-params["estate_tax"])/(params["phi2"]) * k)
+	terminal_policy = (-k + params["exog_grid"] * (1 + params["rate"]) + G_ret * np.ones(params["exog_grid"].shape))/(1 + k * (1-params["estate_tax"])/(params["phi2"]))
+	# Implement budget constraint
+	terminal_policy[terminal_policy < 0] = 0
+
 	params["terminal_policy"] = terminal_policy
 
 	return(params)

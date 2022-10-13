@@ -28,6 +28,7 @@ def lc_policies(params, income_states_matrix, transition_matrix, bequest_shock_p
 		
 		income_states = income_states_matrix[t]
 
+		
 		mu_cons_fut = ((1+params["rate"]) * params["exog_grid"] + income_states_next - pol)**(-params["risk_aver"])
 		
 		Bs = (1-params["estate_tax"]) * params["exog_grid"]
@@ -39,7 +40,6 @@ def lc_policies(params, income_states_matrix, transition_matrix, bequest_shock_p
 		Ecf = np.matmul(mu_fut, transition_matrix.T)
 		
 		if t + min_age == max_work_age:
-			
 			Ecf = bequested_ecf(phi1, Ecf,mu_beq_fut, pol, guess, bequest_shock_probs, transition_matrix, params)
 
 		pol = EGM(Ecf, disc_factor, params["exog_grid"], income_states, pol,transition_matrix, params)
@@ -60,10 +60,9 @@ def bequested_ecf(phi1, Ecf_no_beq, mu_beq_fut, pol, guess, bequest_shock_probs,
 	
 	pol_beq = np.empty((params["action_states"].shape[0],params["bequest_grid"].shape[0]))
 	for b in range(params["bequest_grid"].shape[0]):
-		pol_beq[:,b] = np.interp(params["action_states"] + params["bequest_grid"][b], params["action_states"], pol_vec)
-		# params["action_states"] 1000 by 1
-		# params["bequest_grid"] 20 by 1
-		# pol_beq = 1000 by 20
+		# TODO: something wrong with bequests here 
+		pol_beq[:,b] = np.interp(params["action_states"] + params["bequest_grid"][b]/(1 + params["rate"]), params["action_states"], pol_vec)
+		
 	asset_grid_beq = np.tile(params["action_states"], (params["bequest_grid"].shape[0],1)).T
 	bequests = np.tile(params["bequest_grid"], (params["action_states"].shape[0],1))
 
@@ -128,9 +127,6 @@ def EGM(Ecf, disc_factor, action_states, income_states, pol, P, params):
 		pol[:,s] = np.interp(x = action_states[:,s], xp = assets_endog[:,s], fp = action_states[:,s], left = params["min_asset"], right = params["max_asset"])
 	
 	return(pol)
-
-
-
 
 def create_shock_panel(params, transition_matrix, min_age, max_age):
 	''' Simulates based on indices, then convert to values

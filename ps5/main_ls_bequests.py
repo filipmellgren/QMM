@@ -10,7 +10,6 @@ import plotly.express as px
 import time
 import ipdb
 #from src.reward_funcs import calc_consumption
-# TODO: I multiply with bequests inside sim_years(...) where bequests should simply be additive. 
 
 def equilibrium_distance(guess, shocks, params, phi1):
 	''' Want to find a fixed point, that's our equilibrium
@@ -60,22 +59,23 @@ def plot_bequests(phi1):
 	error = outcome["fun"]
 
 	np.savetxt(f'figures/eq_vec_phi1_{phi1}.csv', equilibrium_vector, delimiter=',')
+	error = np.expand_dims(np.around(error, 6), axis = 0)
 	np.savetxt(f'figures/nm_error_{phi1}.csv', error, delimiter=',')
 
 	diff, hh_panel_y, hh_panel_a, hh_panel_s, hh_panel_c, bequests, death_ix = equilibrium_distance(equilibrium_vector, economy_shocks, params, phi1)
 
 	fig = plot_series(hh_panel_c, dict(age = "Age", yvar="# Goods"))
-	fig.update_layout(title = "Average consumption")
+	fig.update_layout(title = f'Average consumption, phi = {phi1}')
 	fig.write_image(f'figures/consumption_{phi1}.png')
 
 	fig = plot_series(hh_panel_y, dict(age = "Age", yvar="# Goods"))
-	fig.update_layout(title = "Average income")
+	fig.update_layout(title = f"Average income, phi = {phi1}")
 	fig.write_image(f'figures/income_{phi1}.png')
 
 	beq_df = pd.DataFrame(np.array([bequests, death_ix ]).T, columns = ["bequests", "age"]).groupby("age").sum().reset_index()
 	beq_df.bequests = beq_df.bequests/params["n_hh"]
 	fig = px.line(beq_df, x="age", y="bequests", template = 'plotly_white')
-	fig.update_layout(title = "Average bequests left")
+	fig.update_layout(title = f"Average bequests left, phi = {phi1}")
 	fig.write_image(f'figures/bequests_{phi1}.png')
 
 	asset_df = pd.DataFrame(np.nanmean(hh_panel_a, axis = 1), columns = ["Assets"])
@@ -85,7 +85,7 @@ def plot_bequests(phi1):
 	df["Net_assets"] = df["Assets"] - df["bequests"].fillna(0)
 
 	fig = px.line(df, x="age", y="Net_assets", template = 'plotly_white')
-	fig.update_layout(title = "Average Assets")
+	fig.update_layout(title = f"Average Assets, phi = {phi1}")
 	fig.write_image(f'figures/avg_assets_{phi1}.png')
 
 	ginilist = []
@@ -96,19 +96,29 @@ def plot_bequests(phi1):
 	ginidf = pd.DataFrame(ginilist, columns = ["gini"])
 	ginidf["year"] = ginidf.index
 	fig = px.line(ginidf, x = "year", y = "gini", template = 'plotly_white')
-	fig.update_layout(title = "Gini")
+	fig.update_layout(title = f"Gini, phi = {phi1}")
 	fig.write_image(f'figures/gini_{phi1}.png')
 
-	# TODO make relative to total
-	pct99 = np.nanpercentile(hh_panel_a, 99, axis = 1)
-	pct95 = np.nanpercentile(hh_panel_a, 95, axis = 1)
-	pct80 = np.nanpercentile(hh_panel_a, 80, axis = 1)
+	wealth_total = np.nansum(hh_panel_a, axis = 1)
 
-	df = pd.DataFrame(np.asarray([pct99, pct95, pct80]).T, columns = ["p99", "p95", "p80"])
+	pct99 = np.nanpercentile(hh_panel_a, 99, axis = 1) 
+	pct95 = np.nanpercentile(hh_panel_a, 95, axis = 1) 
+	pct80 = np.nanpercentile(hh_panel_a, 80, axis = 1) 
+
+	pct99 = np.tile(pct99, hh_panel_a.shape[1]).reshape(hh_panel_a.T.shape).T
+	pct95 = np.tile(pct95, hh_panel_a.shape[1]).reshape(hh_panel_a.T.shape).T
+	pct80 = np.tile(pct80, hh_panel_a.shape[1]).reshape(hh_panel_a.T.shape).T
+
+	share_99 = np.nansum(hh_panel_a * (hh_panel_a > pct99), axis = 1) / wealth_total
+	share_95 = np.nansum(hh_panel_a * (hh_panel_a > pct95), axis = 1) / wealth_total
+	share_80 = np.nansum(hh_panel_a * (hh_panel_a > pct80), axis = 1) / wealth_total
+
+
+	df = pd.DataFrame(np.asarray([share_99, share_95, share_80]).T, columns = ["p99", "p95", "p80"])
 	df["year"] = df.index
 	df = pd.melt(df, id_vars = ["year"], value_vars = ["p99", "p95", "p80"])
 	fig = px.line(df, x = "year", y = "value", color = "variable", template = 'plotly_white')
-	fig.update_layout(title = "Inequality")
+	fig.update_layout(title = f"Inequality, phi = {phi1}")
 	fig.write_image(f'figures/inequality_{phi1}.png')
 	return	
 
