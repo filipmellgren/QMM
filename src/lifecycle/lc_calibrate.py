@@ -3,7 +3,7 @@ import pandas as pd
 from src.tauchenhussey import tauchenhussey, floden_basesigma 
 import ipdb
 
-def calibrate_life_cyc(income_permamence, phi1):
+def calibrate_life_cyc(income_permamence, phi1, estate_tax):
 	'''
 	income_permamnence is the AR1 term of the icnome process
 	'''
@@ -21,7 +21,7 @@ def calibrate_life_cyc(income_permamence, phi1):
 	"min_asset": 0,
 	"max_asset": 150,
 	"bequest_states_n": 20,
-	"estate_tax": 0.15,
+	"estate_tax": estate_tax,
 	"phi2": 10
 	}
 
