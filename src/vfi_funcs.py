@@ -62,7 +62,7 @@ def value_function_iterate(V, transition_matrix, reward_matrix, stoch_states, de
 
 	return(V, POL)
 
-def egm(V, transition_matrix, action_states, asset_states, rate, params, tol = 1e-6):
+def egm(transition_matrix, action_states, rate, params, tol = 1e-6):
 	""" Implements the Endogenous Grid Method for solving the household problem.
 	
 	# TODO: only works for infinitely lived household problems. 
@@ -123,6 +123,5 @@ def egm(V, transition_matrix, action_states, asset_states, rate, params, tol = 1
 
 		reward = (np.power(cons_today, 1-params["risk_aver"]))/(1-params["risk_aver"])
 		reward[cons_today<0] = -np.inf 
-		V_upd = reward + params["disc_fact"] * V
-		V = np.copy(V_upd)
-	return(V, policy_guess)
+
+	return(policy_guess)
