@@ -121,7 +121,4 @@ def egm(transition_matrix, action_states, rate, params, tol = 1e-6):
 		diff = max(np.max(np.abs(policy_guess_upd - policy_guess)), diff)
 		policy_guess = np.copy(policy_guess_upd)
 
-		reward = (np.power(cons_today, 1-params["risk_aver"]))/(1-params["risk_aver"])
-		reward[cons_today<0] = -np.inf 
-
 	return(policy_guess)

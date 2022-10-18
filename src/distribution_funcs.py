@@ -37,14 +37,14 @@ def kieran_finder(distr_guess, policy, action_set, transition_matrix, inc_size, 
 			for j in range(inc_size):
 				prob = transition_matrix[j,l]
 				for k in prange(asset_size):
-					indic = np.abs(policy[:,j] - action_set[k]) < 0.00001
+					indic = policy[:,j] == action_set[k]
 					lambdap[k,l] = lambdap[k,l] + prob * np.sum(lambd[indic,j])
 
 		dlambda = np.max(np.abs(lambdap - lambd))
 		diff = max(dlambda, diff)
 		lambd = np.copy(lambdap)
 		# Below assertion cannot be used in JIT mode
-#	assert(abs(np.sum(distr_guess) - 1)<0.00001), print(np.sum(distr_guess))
+	#assert(abs(np.sum(distr_guess) - 1)<0.00001), print(np.sum(distr_guess))
 	return(lambd)
 
 def solve_distr(policy, action_set, params):
