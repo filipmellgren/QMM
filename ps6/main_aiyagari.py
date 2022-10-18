@@ -13,6 +13,9 @@ from numba import jit, njit, prange
 from scipy.interpolate import griddata
 import time
 
+import plotly.io as pio
+pio.templates.default = "plotly_white"
+
 def market_clearing(r_in):
 
 	min_assets = -1
@@ -54,7 +57,7 @@ def market_clearing(r_in):
 	
 	
 	diff = K_hh-K_firm
-	return(diff, ergodic_distribution, K_hh, policy_exog_grid)
+	return(diff, ergodic_distribution, K_hh, policy_exog_grid, asset_grid, income_states)
 
 def state_transition_matrix(transition_matrix, asset_grid, income_states, policy):
 	""" Create Markov transition matrix
@@ -102,47 +105,121 @@ def EigenLambda(transition_matrix, asset_grid, income_states, policy):
 	return(np.reshape(vector, (asset_grid.shape[0], income_states.shape[0]), order = "f"))
 
 start = time.time()
-r_star = sp.optimize.bisect(lambda x: market_clearing(x)[0], 0, 0.2) 
+r_star = sp.optimize.newton(lambda x: market_clearing(x)[0]**2, 0.025, tol = 1e-5) # 19 seconds
 end = time.time()
 print(end - start)
 
-dist, distribution, K, policy = market_clearing(r_star)
-
-
 
 #### output
+
 def gini(x):
 	total = 0
 	for i, xi in enumerate(x[:-1], 1):
 		total += np.nansum(np.abs(xi - x[i:]))
 	return total / (len(x)**2 * np.nanmean(x))
 
-wealth_distribution = np.sum(distribution, axis = 1)
-income_distribution = np.sum(distribution, axis = 0)
+def part1_output():
+	dist, distribution, K, policy, asset_grid, income_states = market_clearing(r_star)
 
-wealth_gini = np.expand_dims(np.around(gini(wealth_distribution), 6), axis = 0)
-income_gini = np.expand_dims(np.around(gini(income_distribution), 6), axis = 0)
+	wealth_distribution = np.sum(distribution, axis = 1) * asset_grid
+	income_distribution = np.sum(distribution, axis = 0) * income_states
 
-np.savetxt(f'figures/wealth_gini.csv', wealth_gini, delimiter=',')
-np.savetxt(f'figures/income_gini.csv', income_gini, delimiter=',')
+	wealth_gini = np.expand_dims(np.around(gini(wealth_distribution), 6), axis = 0)
+	income_gini = np.expand_dims(np.around(gini(income_distribution), 6), axis = 0)
 
-np.percentile(wealth_distribution, 50)
-np.percentile(wealth_distribution, 0.9)
-np.percentile(wealth_distribution, 0.99)
-np.percentile(wealth_distribution, 0.999)
+	np.savetxt(f'figures/wealth_gini.csv', wealth_gini, delimiter=',')
+	np.savetxt(f'figures/income_gini.csv', income_gini, delimiter=',')
 
-cum_wealth = np.cumsum(wealth_distribution)
-df = pd.DataFrame(cum_wealth, columns = ['cum wealth'])
-df["cum wealth"] =  df["cum wealth"] / cum_wealth[-1]
-fig = px.line(df, x=df.index/len(df.index), y="cum wealth", title='Lorenz curve wealth')
-fig.write_image(f'figures/lorenz_wealth.png')
+	np.percentile(wealth_distribution, 50)
+	np.percentile(wealth_distribution, 90)
+	np.percentile(wealth_distribution, 99)
+	np.percentile(wealth_distribution, 99.9)
+
+	cum_wealth = np.cumsum(wealth_distribution)
+	df = pd.DataFrame(cum_wealth, columns = ['cum wealth'])
+	df["cum wealth"] =  df["cum wealth"] / cum_wealth[-1]
+	df["wealth_level"] = asset_grid
+	df["cum share"] = np.cumsum(np.sum(distribution, axis = 1))
+	fig = px.line(df, x="cum share", y="cum wealth", title='Lorenz curve wealth')
+	fig.write_image(f'figures/lorenz_wealth.png')
 
 
-cum_income = np.cumsum(income_distribution)
-df = pd.DataFrame(cum_income, columns = ['cum income'])
-df["cum income"] =  df["cum income"] / cum_income[-1]
-fig = px.line(df, x=df.index/len(df.index), y="cum income", title='Lorenz curve income')
-fig.write_image(f'figures/lorenz_income.png')
+	cum_income = np.cumsum(income_distribution)
+	df = pd.DataFrame(cum_income, columns = ['cum income'])
+	df["cum income"] =  df["cum income"] / cum_income[-1]
+	df["income_level"] = income_states
+	df["cum share"] = np.cumsum(np.sum(distribution, axis = 0))
+	fig = px.line(df, x="cum share", y="cum income", title='Lorenz curve income')
+	fig.write_image(f'figures/lorenz_income.png')
+	return
+
+part1_output()
+#### PART 2
+def market_clearing_part2(r_in, max_assets):
+
+	min_assets = -1
+	asset_grid = np.logspace(
+		start = 0, 
+		stop = np.log10(max_assets+2), 
+		num = 1500) -2
+
+
+	chi = 0.035/(max_assets - 50)
+	r_hetero = chi * np.maximum(np.zeros(asset_grid.shape), asset_grid)
+
+	r_idio, r_P = tauchenhussey(5, 0,0,0.15, floden_basesigma(0.15, 0))
+
+	alpha = 0.3
+	sigma = np.sqrt(0.04)
+	rho = 0.94
+	mu = 0
+	inc_size = 5
+	baseSigma = floden_basesigma(sigma, rho)
+	log_income_states, transition_matrix = tauchenhussey(inc_size, mu,rho,sigma, baseSigma)
+	income_states = np.exp(log_income_states[0,:])
+	steady_distribution = np.linalg.matrix_power(transition_matrix, 1000)
+	mean_income =  income_states @ steady_distribution[0,:]
+	income_states = income_states / mean_income # Checked with Tom
+
+	P = np.kron(transition_matrix, r_P)
+
+	delta = 0.1
+	K_firm = (alpha/(r_in + delta))**(1/(1-alpha))
+	wage = (1 - alpha) * K_firm ** alpha
+	income_states = wage * income_states
+	
+	params = {
+	"disc_fact": 0.96,
+	"risk_aver": 1.5,
+	"income_states": income_states
+	}
+
+	r_det = r_in + r_hetero
+	r_d, r_i = np.meshgrid(r_det, r_idio, indexing = "ij", sparse = True)
+	r_tot = r_d + r_i # 1500 by 5
+	
+	policy = egm(transition_matrix, asset_grid, r_tot, params, tol = 1e-6)
+	policy_exog_grid = griddata(asset_grid, asset_grid, policy, method='nearest')
+
+	ergodic_distribution  = EigenLambda(transition_matrix, asset_grid, income_states, policy_exog_grid)
+	
+	K_hh = np.sum(ergodic_distribution * policy_exog_grid)
+	
+	
+	diff = K_hh-K_firm
+	return(diff, ergodic_distribution, K_hh, policy_exog_grid)
+
+
+# Want policy from all endog coh x income states to exog savings
+# coh = income_states + asset_grid * (1 + r_tot)
+# mu_cons_fut = (coh - policy_guess)**(-params["risk_aver"])
+# Ecf = np.matmul(mu_cons_fut, P.T)
+#	cons_today = (params["disc_fact"] * (1+rate) * Ecf)**(-1/params["risk_aver"])
+# endog_coh = cons_today + action_states
+
+#1/(1+rate) * (cons_today + action_states - income_states) 
+
+
 
 
 
