@@ -136,69 +136,68 @@ def part1_output():
 	np.percentile(wealth_distribution, 99.9)
 
 	cum_wealth = np.cumsum(wealth_distribution)
-	df = pd.DataFrame(cum_wealth, columns = ['cum wealth'])
-	df["cum wealth"] =  df["cum wealth"] / cum_wealth[-1]
+	df = pd.DataFrame(cum_wealth, columns = ['Cumulative Wealth'])
+	df["Cumulative Wealth"] =  df["Cumulative Wealth"] / cum_wealth[-1]
 	df["wealth_level"] = asset_grid
-	df["cum share"] = np.cumsum(np.sum(distribution, axis = 1))
-	fig = px.line(df, x="cum share", y="cum wealth", title='Lorenz curve wealth')
+	df["Cumulative Share"] = np.cumsum(np.sum(distribution, axis = 1))
+	fig = px.line(df, x="Cumulative Share", y="Cumulative Wealth", title='Lorenz Curve for Wealth')
 	fig.write_image(f'figures/lorenz_wealth.png')
 
 
 	cum_income = np.cumsum(income_distribution)
-	df = pd.DataFrame(cum_income, columns = ['cum income'])
-	df["cum income"] =  df["cum income"] / cum_income[-1]
+	df = pd.DataFrame(cum_income, columns = ['Cumulative Income'])
+	df["Cumulative Income"] =  df["Cumulative Income"] / cum_income[-1]
 	df["income_level"] = income_states
-	df["cum share"] = np.cumsum(np.sum(distribution, axis = 0))
-	fig = px.line(df, x="cum share", y="cum income", title='Lorenz curve income')
 	fig.write_image(f'figures/lorenz_income.png')
 	return
 
 part1_output()
 #### PART 2
 def market_clearing_part2(r_in, max_assets):
+min_assets = -1
+max_assets = 500
+asset_grid = np.logspace(
+	start = 0, 
+	stop = np.log10(max_assets+2), 
+	num = 1501) -2
 
-	min_assets = -1
-	asset_grid = np.logspace(
-		start = 0, 
-		stop = np.log10(max_assets+2), 
-		num = 1500) -2
+chi = 0.035/(max_assets - 50)
+r_hetero = chi * np.maximum(np.zeros(asset_grid.shape), asset_grid)
 
+r_idio, P_r = tauchenhussey(5, 0,0,0.15, floden_basesigma(0.15, 0))
+r_idio = np.exp(r_idio) - 1
 
-	chi = 0.035/(max_assets - 50)
-	r_hetero = chi * np.maximum(np.zeros(asset_grid.shape), asset_grid)
+alpha = 0.3
+sigma = np.sqrt(0.04)
+rho = 0.94
+mu = 0
+inc_size = 5
+baseSigma = floden_basesigma(sigma, rho)
+log_income_states, transition_matrix = tauchenhussey(inc_size, mu,rho,sigma, baseSigma)
+income_states = np.exp(log_income_states[0,:])
+steady_distribution = np.linalg.matrix_power(transition_matrix, 1000)
+mean_income =  income_states @ steady_distribution[0,:]
+income_states = income_states / mean_income # Checked with Tom
 
-	r_idio, r_P = tauchenhussey(5, 0,0,0.15, floden_basesigma(0.15, 0))
+delta = 0.1
+r_in = 0
+K_firm = (alpha/(r_in + delta))**(1/(1-alpha))
+wage = (1 - alpha) * K_firm ** alpha
+income_states = wage * income_states
 
-	alpha = 0.3
-	sigma = np.sqrt(0.04)
-	rho = 0.94
-	mu = 0
-	inc_size = 5
-	baseSigma = floden_basesigma(sigma, rho)
-	log_income_states, transition_matrix = tauchenhussey(inc_size, mu,rho,sigma, baseSigma)
-	income_states = np.exp(log_income_states[0,:])
-	steady_distribution = np.linalg.matrix_power(transition_matrix, 1000)
-	mean_income =  income_states @ steady_distribution[0,:]
-	income_states = income_states / mean_income # Checked with Tom
+params = {
+"disc_fact": 0.96,
+"risk_aver": 1.5,
+"income_states": income_states
+}
+tol = 1e-3
 
-	P = np.kron(transition_matrix, r_P)
-
-	delta = 0.1
-	K_firm = (alpha/(r_in + delta))**(1/(1-alpha))
-	wage = (1 - alpha) * K_firm ** alpha
-	income_states = wage * income_states
-	
-	params = {
-	"disc_fact": 0.96,
-	"risk_aver": 1.5,
-	"income_states": income_states
-	}
-
-	r_det = r_in + r_hetero
-	r_d, r_i = np.meshgrid(r_det, r_idio, indexing = "ij", sparse = True)
-	r_tot = r_d + r_i # 1500 by 5
-	
-	policy = egm(transition_matrix, asset_grid, r_tot, params, tol = 1e-6)
+r = r_in + np.expand_dims(r_hetero, axis = 1) + r_idio
+pol_large = egm_coh(income_states, asset_grid, transition_matrix, P_r, r, params, tol)
+pol_large_exp = pol_large * np.tile(P_r[0], income_states.shape[0])
+# TODO: note, mapping is from exog coh to endog savings, want to force savings to some grid
+policy = np.sum(np.reshape(pol_large_exp, (pol_large.shape[0], income_states.shape[0], -1)), axis = 2)
+# TODO: continue down here tomorrow:
 	policy_exog_grid = griddata(asset_grid, asset_grid, policy, method='nearest')
 
 	ergodic_distribution  = EigenLambda(transition_matrix, asset_grid, income_states, policy_exog_grid)
@@ -210,14 +209,88 @@ def market_clearing_part2(r_in, max_assets):
 	return(diff, ergodic_distribution, K_hh, policy_exog_grid)
 
 
-# Want policy from all endog coh x income states to exog savings
-# coh = income_states + asset_grid * (1 + r_tot)
-# mu_cons_fut = (coh - policy_guess)**(-params["risk_aver"])
-# Ecf = np.matmul(mu_cons_fut, P.T)
-#	cons_today = (params["disc_fact"] * (1+rate) * Ecf)**(-1/params["risk_aver"])
-# endog_coh = cons_today + action_states
+def find_endog_coh(exog_coh, income_states, policy, P, P_r, params):
+	''' Returns a mapping from asset tomorrow x income state (cash-on-hand today) to consumption today
 
-#1/(1+rate) * (cons_today + action_states - income_states) 
+	Parameters
+	----------
+	income_states : numpy array (vector) of persistent income states
+	asset_grid : numpy array of possible asset states
+	R : numpy array of returns varying with asset level and some idiosyncratic shocks to returns. asset dim x number of idiosyncratic states
+
+	Returns
+	-------
+	endog_coh
+	  The endogenously found cash on hand array.
+	'''
+
+	# Find mapping from coh to savings
+	# expand to a mapping to coh tomorrow
+	# Reduce dimensions again 
+
+		# income 1, all assets | income 2, all assets, etc.
+	cons_fut = exog_coh - policy
+	mu_cons_fut = cons_fut**(-params["risk_aver"])
+	PP = np.kron(P, P_r)
+	Ecf = np.matmul(mu_cons_fut, PP.T)
+	# Ecf = Ecf * np.tile(P_r, 5)[0]
+	cons_today = (params["disc_fact"] * Ecf)**(-1/params["risk_aver"])
+	
+	savings = exog_coh - cons_today
+	# Notice depedence on next period interest rate!!!
+	return(savings) # 1501 x 25
+
+def invert_function(exog_grid, x_grid, outcome):
+	''' Reverts a mapping from x_grid to endog_outcome to endog outcome to exog_grid.
+	This is done using interpolation.
+	'''
+	policy = np.empty(outcome.shape)
+	
+	for s in range(outcome.shape[1]):
+		policy[:,s] = np.interp(x = exog_grid[:,s], xp = outcome[:,s], fp = x_grid[:,s], left = x_grid[0,s], right = x_grid[-1,s])
+	return(policy)
+
+def egm_coh(income_states, asset_grid, P, P_r, returns_matrix, params, tol):
+	''' Returns a mapping from endogenous cash on hand X income state to assets tomorrow.
+
+	Parameters
+	----------
+	income_states : numpy array (vector) of persistent income states
+	asset_grid : numpy array of possible asset states
+	R : numpy array of returns varying with asset level and some idiosyncratic shocks to returns. asset dim x number of idiosyncratic states
+
+	Returns
+	-------
+	policy
+	  A mapping from cash on hand x income states to assets tomorrow
+	'''
+	
+	
+	asset_income_grid = np.logspace(
+		start = 0, 
+		stop = np.log10(np.max(asset_grid) + 1 - (-1)),
+		num = 1501) - 1 + (-1)
+
+	#asset_income_grid = np.tile(asset_income_grid.T, 5).reshape(5, 1501).T
+	asset_incomes = (1+returns_matrix) *  np.expand_dims(asset_income_grid,1)
+	asset_incomes_rep = np.tile(asset_incomes, income_states.shape[0])
+	# All possible cash-on-hand states:
+	exog_coh = asset_incomes_rep + np.repeat(income_states, asset_incomes.shape[1])
+	# Policy contains all possible future values, i.e. 1501 by 25
+	policy_guess = np.copy(exog_coh) - 0.01
+
+	diff = tol + 1
+	while diff > tol:
+		diff = 0
+		savings = find_endog_coh(exog_coh, income_states, policy_guess, P, P_r,params) # given that we know the shock, what was the chocie of coh?
+	#	policy_guess_upd = invert_function(exog_grid = exog_coh, x_grid = exog_coh, outcome = savings)
+		policy_guess_upd = savings	
+		diff = max(np.max(np.abs(policy_guess_upd - policy_guess)), diff)
+		policy_guess = np.copy(policy_guess_upd)
+
+	policy = policy_guess
+	return(policy)
+
 
 
 
