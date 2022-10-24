@@ -1,0 +1,226 @@
+# Problem set 7, Heterogeneity with aggregate shocks (Krusell Smith)
+
+import numpy as np
+from numba import jit, njit, prange
+import ipdb
+
+params = {
+	"asset_grid": np.logspace(
+	start = 0,
+	stop = np.log10(500+1),
+	num= 1000)-1,
+	"P": np.array([
+	[0.525, 0.35, 0.03125, 0.09375], 
+	[0.038889, 0.836111, 0.002083, 0.122917],
+	[0.09375, 0.03125, 0.291667, 0.583333],
+	[0.009115, 0.115885, 0.024306, 0.850694]]),
+	"disc_factor": 0.99,
+	"risk_aver": 1.5
+	}
+
+P = params["P"]
+
+def employment(boom, pop = 1):
+	if not boom:
+		return(pop - 0.1)
+	return(pop - 0.04)
+
+def tax(boom, pop):
+	emp = employment(boom)
+	return(ue_rr * (pop - emp) / emp)
+
+def wage(boom, K, alpha, pop = 1):
+	L = employment(boom, pop)
+	MPL = (1-alpha) * (K/L)**alpha
+	if not boom:
+		return(0.99 * MPL)
+	
+	return(1.01 * MPL)
+
+def MPK(boom, K, L, alpha):
+	if not boom:
+		return(0.99 * alpha * (L/K)**(1-alpha))
+	return(1.01 * alpha * (L/K)**(1-alpha))
+
+def get_rates(K):
+	delta = 0.025
+	rates = np.array([MPK(False), MPK(True)]) - delta
+	return(rates)
+
+def get_prices(K):
+	wages = np.array([wage(False), wage(True)])
+
+	return(wages, rates)
+
+def get_income_states(K_agg_grid, alpha):
+	# TODO: do not forget taxes
+	income_states = np.empty((K_agg_grid.shape[0], 4))
+	ue_rr = 0.15
+	tax = 0.1 # TODO: should calculate for every capital level
+	for ix in range(K_agg_grid.shape[0]):
+		K_agg = K_agg_grid[ix]
+		income_states[ix, :] = np.array([
+			ue_rr, (1 - tax) * wage(False, K_agg, alpha), 
+			ue_rr, (1 - tax) * wage(True, K_agg, alpha)])
+	income_states = income_states.flatten()
+	return(income_states)
+
+def get_transition_matrix(P, K_agg_grid, beliefs):
+	'''
+	Create the P matrix tiled horizontally and vertically.
+	Create an indicator matrix from (aggregate) K to (aggregate) K' based on beliefs
+	Return the new transition matrix
+	'''
+	ipdb.set_trace()
+	P_tiled = np.tile(P, (K_agg_grid.shape[0], K_agg_grid.shape[0]))
+	K_trans_indic = find_K_transitions(beliefs, K_agg_grid)
+	K_trans_indic = np.repeat(np.repeat(K_trans_indic, P.shape[0], axis = 0), P.shape[0], axis = 1)
+	PP = P_tiled * K_trans_indic
+	return(PP)
+
+def find_K_transitions(beliefs, K_agg_grid):
+	i_mat = np.empty((K_agg_grid.shape[0], K_agg_grid.shape[0]))
+	for ix in range(K_agg_grid):
+		K = K_agg_grid[ix]
+		K_next = get_K_next(beliefs, K)
+		K_next_on_grid = K_agg_grid[np.abs(K_agg_grid - K_next).argmin()]
+		indicator = np.isclose(K_next_on_grid, K_agg_grid)
+		i_mat[ix, :]	
+	return(i_mat)
+	
+def get_K_next(beliefs, K):
+	K_next = np.exp(beliefs[0] + beliefs[1] * K)
+	return(K_next)
+
+def interest_rates(K_grid):
+	rates = np.empty((K_grid.shape[0], 4)) # 4 is just idio x agg shocks
+	for ix in range(K_grid):
+		K = K_grid[ix]
+		rate = np.repeat(get_rates(K), 2) # bad, bad, good, good
+		rates[ix, :]
+	return(rates)
+
+def simulate_shocks():
+	N_hh = 10000
+	T = 6000
+	p_good = 0.875
+	agg_shock = []
+	for time in range(T):
+		boom = np.random.uniform() < p_good
+		agg_shock.append(boom)
+
+	panel = np.empty((T, N_hh))
+	for hh in range(N_hh):
+		hh_draws = np.random.uniform(size = T-1)
+		hh_employed = sim_hh(T, hh_draws)
+		panel[:,hh] = np.asarray(hh_employed)
+
+	return(panel, agg_shock)
+
+@jit(nopython=True, parallel = False)
+def sim_hh(T, hh_draws):
+	hh_employed= [True]
+	for time in prange(T-1):
+		p_ee = 0.5 # TODO. Might depend on aggregate state.  
+		p_ue = 0.2 # TODO
+		hh_draw = hh_draws[time] 
+		if hh_employed[-1]:
+			if hh_draw > p_ee:
+				hh_employed.append(True)
+			else:
+				hh_employed.append(False)
+		else:
+			if hh_draw > p_ue:
+				hh_employed.append(True)
+			else:
+				hh_employed.append(False)
+	return(hh_employed)
+
+def egm_asset_choices(rate, P, action_states, income_states, policy, disc_factor, risk_aver):
+	mu_cons_fut = ((1+rate) * action_states + income_states - policy)**(-risk_aver)
+	Ecf = np.matmul(mu_cons_fut, P.T)
+	cons_today = (disc_factor * (1+rate) * Ecf)**(-1/risk_aver)
+	endog_assets = 1/(1+rate) * (cons_today + action_states - income_states)
+	return(endog_assets)
+
+def interpolate_to_grid(exog_grid, x_grid, outcome):
+	policy = np.empty(outcome.shape)
+	
+	for s in range(outcome.shape[1]):
+		policy[:,s] = np.interp(x = exog_grid, xp = x_grid[:,s], fp = outcome[:,s], left = outcome[0,s], right = outcome[-1,s])
+	return(policy)
+
+def egm(P, action_states, income_states, rate, disc_factor, risk_aver, tol = 1e-6):
+	""" Implements the Endogenous Grid Method for solving the household problem.
+	
+	# TODO: only works for infinitely lived household problems. 
+
+	Useful reference: https://alisdairmckay.com/Notes/HetAgents/EGM.html
+	The EGM method solves the household problem faster than VFI by using the HH first order condition to find the policy functions. Attributed to Carroll (2006).
+
+	Roughly the algorithm for updating the diff between policy guess and updated policy is:
+		* Calculate future consumption using budget constraint and policy guess
+		* Calculate marginal utility of consumption today using the Euler Equation. This requires the expected marginal utility of consumption tomorrow. Solve for consumption today. Easy with CRRA utility (which implementation assumes, not with parameter 1 though, the log utility case, approximate with value close to 1).
+		* Above gives mapping from action to assets today. Want to flip this relation, do that using interpolation and evaluate at the exogenous grid. Extrapolate using borrowing constraint and maximum possible asset value (later shouldn't be a problem ideally, just increase upper bound).
+		* Update policy and calculate the distance metric, compare and terminate or reiterate.
+
+	Parameters
+	----------
+
+	P : a transition matrix represented by a numpy array of probabilities of going from row to col
+	action_states : a numpy grid of possible actions. Tends to be asset_grid
+	income_states : a numpy grid of possible income states
+	rate : an interest rate of returns to asset holdings
+	disc_factor : rate at which households discount the future
+	risk_aver : risk aversion parameter in households CRRA utility.
+
+	Returns
+	-------
+	policy_guess
+		Numpy array of dimensions of asset_grid and income states
+	"""
+	
+	policy_guess = np.full((action_n, income_n), np.min(action_states)) # TODO update to 45 degree line
+	policy_guess += np.tile(np.linspace(0.001, 0.01, action_n).T, income_n).reshape(income_n, action_n).T
+
+	diff = tol + 1
+	while diff > tol:
+		diff = 0
+		endog_assets = egm_asset_choices(rate, P, asset_grid, income_states, policy, disc_factor, risk_aver)
+		policy_guess_upd = interpolate_to_grid(asset_grid, endog_assets, asset_grid)
+			
+		diff = max(np.max(np.abs(policy_guess_upd - policy_guess)), diff)
+		policy_guess = np.copy(policy_guess_upd)
+
+	return(policy_guess)
+
+def find_eq(beliefs, params):
+	
+	shock_panel, agg_shocks = simulate_shocks() # Want to use the same shocks when root finding. # T by 10 000 = 6000 * 10 0000
+	K_ss = 1 # TODO solve for this
+	K_grid = np.linspace(
+		start = 0.85 * K_ss,
+		stop = 1.25 * K_ss,
+		num = 10)
+	alpha = 0.36
+	
+	income_states = get_income_states(K_grid, alpha)
+	diff = 100
+	while diff > 1e-4:
+		
+		P = get_transition_matrix(params["P"], K_grid, beliefs)
+		# TODO: incoporate that interest changes depending on aggregate capital 
+		# Just calculate the rate for each K and repeat 4 times
+		ipdb.set_trace()
+		rates = interest_rates(K_grid)
+		hh_policy = egm(P, params["asset_grid"], income_states, rates, params["disc_factor"], params["risk_aver"], tol = 1e-6) # 1000 by 40
+		hh_distribution = 0 # TODO: know all the shocks and what they do in each state, just figure out where they end up (see previous PS for how to do that)
+		# Want 1000 by 40 by T, one distr for each T
+		K_implied = hh_distribution * hh_policy # TODO sum so that there are only T values left
+		
+		boom_coef_new = sp.stats.linregress(K_implied[0:-2], y=K_implied[1:-1])
+		#bust_coef_new = sp.stats.linregress(cap_stock_lag, y=cap_stock)
+		diff = np.max(np.abs(boom_coef_new - boom_coef)) # TODO: Check all conditions (also busts)
+	return(diff)
+
+find_eq(np.array((0,1)), params)
