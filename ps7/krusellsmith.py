@@ -2,7 +2,9 @@
 
 import numpy as np
 from numba import jit, njit, prange
+import numba as nb
 import ipdb
+import time
 
 params = {
 	"asset_grid": np.logspace(
@@ -19,7 +21,6 @@ params = {
 	}
 
 P = params["P"]
-
 
 
 def employment(boom, pop = 1):
@@ -113,9 +114,7 @@ def interest_rates(K_grid, L, alpha):
 		rates[ix, :]
 	return(rates)
 
-def simulate_shocks():
-	N_hh = 10000
-	T = 6000
+def simulate_shocks(N_hh, T):
 	p_good = 0.875
 	agg_shock = []
 	for time in range(T):
@@ -212,37 +211,81 @@ def egm(P, asset_grid, income_states, rate, disc_factor, risk_aver, tol = 1e-6):
 
 
 
-def hh_history(shock_panel, agg_shocks, income_states, asset_grid, policy):
+def hh_history_panel(shock_panel, agg_shocks, income_states, asset_grid, policy):
 	# for each hh and eyar, find income, assets, savings, consumption
 	N_hh = shock_panel.shape[1]
-	
+	years = shock_panel.shape[0]
 	assets = 0
-	panel = np.empty(N_hh, dtype=[("year", "int16"), ("income", "double"), ("assets", "double")])
-	panel[panel["year"] == 0]["assets"] = 0
+	panel = np.empty(N_hh * years, dtype=[("year", "int16"), ("hh", "int16"), ("income", "double"), ("assets", "double")])
+	panel["year"] = np.tile(range(shock_panel.shape[0]),shock_panel.shape[1])
+	panel["hh"] = np.repeat(range(shock_panel.shape[1]),shock_panel.shape[0])
+	panel["assets"][panel["year"] == 0] = 0
 	K_agg_grid = np.unique(income_states["K_agg"])
 
-	for t in range(shock_panel.shape[0]):
-		K_agg = np.sum(panel["assets"])
-		K_agg = K_agg_grid[np.argmin(abs(K_agg_grid - K_agg))] # Force to grid
-		for hh in range(N_hh):
-			assets = panel[panel["year"] == t]["assets"][hh]
-			employed = shock_panel[t, hh]
-			boom = agg_shocks[t]
-			income = income_states[(income_states["employed"] == employed) & (income_states["boom"] == boom)]
-			try:
-				income = income[np.in1d(income["K_agg"], np.array([K_agg]))]["income"][0]
-			except IndexError as e:
-				print("K_agg is not on the grid.")
-				raise e			
-			income_ix = np.argmin(abs(income_states["income"] - income))
-			asset_ix = np.argmin(abs(asset_grid - assets))
-			savings = policy[asset_ix, income_ix]
-			panel[panel["year"] == t+1]["assets"][hh] = savings
+	panel_year = panel["year"]
+	panel_hh = panel["hh"]
+
+	savings_panel = np.zeros(shock_panel.shape)
+	income_panel = np.zeros(shock_panel.shape)
+	
+	start = time.time()
+	savings_panel, income_panel = hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, income_states, asset_grid, panel_year, panel_hh, policy, savings_panel, income_panel)
+	end = time.time()
+	print(end - start)
+	panel["assets"] = savings_panel.flatten("F")
+	panel["income"] = income_panel.flatten("F")
+
+	
+
 	return(panel)
 
+@jit(nopython=True, parallel = False)
+def hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, income_states, asset_grid, panel_year, panel_hh, policy, savings_panel, income_panel):
+	for t in range(shock_panel.shape[0]):
+		K_agg = np.sum(panel[panel["year"] == t]["assets"])
+		K_agg = K_agg_grid[np.argmin(np.abs(K_agg_grid - K_agg))] # Force to grid
+		K_agg_ix = np.argmin(np.abs(K_agg_grid - K_agg))
+		boom = agg_shocks[t]
+		
+		assets = savings_panel[t-1, :]
+		employed = shock_panel[t, :]
+		income = income_states[(income_states["boom"] == boom) & (income_states["K_agg"] == K_agg)]
+
+		savings_panel, income_panel = hh_history_inner_loop(t, N_hh, K_agg_ix, K_agg_grid, panel, shock_panel, boom, income_states, asset_grid, panel_year, panel_hh, policy, savings_panel, income_panel, assets, employed, income)
+	return(savings_panel, income_panel)
+
+@jit(nopython=True, parallel = True)
+def hh_history_inner_loop(t, N_hh, K_agg_ix, K_agg_grid, panel, shock_panel, boom, income_states, asset_grid, panel_year, panel_hh, policy, savings_panel, income_panel, assets, employed, income):
+	
+	# https://stackoverflow.com/questions/46041811/performance-of-various-numpy-fancy-indexing-methods-also-with-numba
+	for hh in range(N_hh):
+		'''
+		assets = savings_panel[t-1, hh]
+		employed = shock_panel[t, hh]
+		ipdb.set_trace()
+		income = income_states[(income_states["employed"] == employed) & (income_states["boom"] == boom)] # TODO can be improved
+		income = income[K_agg_ix]["income"]
+		'''
+		
+		income_hh = income[income["employed"] == employed[hh]]["income"]
+		
+		income_ix = np.argmin(np.abs(income_states["income"] - income_hh[0]))
+		asset_ix = np.argmin(np.abs(asset_grid - assets[hh]))
+		savings = policy[asset_ix, income_ix]
+		
+		savings_panel[t, hh] += savings
+		income_panel[t, hh] += income_hh[0]
+	return(savings_panel, income_panel)
+
+
+
 def find_eq(beliefs, params):
-	ipdb.set_trace()
-	shock_panel, agg_shocks = simulate_shocks() # Want to use the same shocks when root finding. # T by 10 000 = 6000 * 10 0000
+	
+	shock_panel, agg_shocks = simulate_shocks(N_hh = 1000, T = 120) # Want to use the same shocks when root finding. # T by 10 000 = 6000 * 10 0000
+	# 1000 by 60 took 7.36 seconds
+	# 1000 by 120 took 13.64 seconds, 13.03
+	# 2000 by 60 took 12.3 seconds
+	
 	K_ss = 1 # TODO solve for this
 	K_grid = np.linspace(
 		start = 0.85 * K_ss,
@@ -263,8 +306,10 @@ def find_eq(beliefs, params):
 	
 
 		hh_policy = egm(P, params["asset_grid"], income_states["income"], rates, params["disc_factor"], params["risk_aver"], tol = 1e-6) # 1000 by 40
+		
+		hh_panel = hh_history_panel(shock_panel, agg_shocks, income_states, params["asset_grid"], hh_policy)
 		ipdb.set_trace()
-		hh_distribution = hh_history(shock_panel, agg_shocks, income_states, params["asset_grid"], hh_policy)
+		hh_distribution = get_hh_distribution(hh_panel)
 		# Want 1000 by 40 by T, one distr for each T
 		K_implied = hh_distribution * hh_policy # TODO sum so that there are only T values left
 		
@@ -274,5 +319,18 @@ def find_eq(beliefs, params):
 	return(diff)
 
 find_eq(np.array((0,1)), params)
+
+
+
+panel[0]["income"] = 1
+
+
+def get_hh_distribution():
+	pass
+
+
+
+
+
 
 
