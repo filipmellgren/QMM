@@ -236,29 +236,31 @@ def hh_history_panel(shock_panel, agg_shocks, income_states, asset_grid, policy)
 	panel["income"] = income_panel.flatten("F")
 	return(panel)
 
+
+
 #@jit(nopython=True, parallel = False)
 def hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, income_states, asset_grid, panel_year, panel_hh, policy, savings_panel, income_panel):
+	
+	ue_benefit = income_states[income_states["employed"] == False]["income"][0]
+	ix_ordered = income_states["income"].argsort()
+	income_states = income_states[income_states["employed"]]
 
 	savings = np.zeros(N_hh)
 	for t in range(shock_panel.shape[0]):
-		K_agg = np.sum(panel[panel["year"] == t]["assets"])
+		
+		K_agg = np.sum(savings)
 		K_agg = K_agg_grid[np.argmin(np.abs(K_agg_grid - K_agg))] # Force to grid
-		K_agg_ix = np.argmin(np.abs(K_agg_grid - K_agg))
 		boom = agg_shocks[t]
 		
-		assets = savings_panel[t-1, :]
 		employed = shock_panel[t, :]
 		income = income_states[(income_states["boom"] == boom) & (income_states["K_agg"] == K_agg)]
 
-		salary = income[income["employed"]]["income"][0]
-		ue_benefit = income[income["employed"] == False]["income"][0]
-		income = employed * salary + (employed-1) * ue_benefit
+		salary = income["income"][0]
 		
-
+		income = employed * salary + (1-employed) * ue_benefit
+		
 		# TODO: below is extremely hacky!
-		ix_ordered = income_states["income"].argsort()
-		income_states_ordered = income_states["income"][ix_ordered]
-		income_states_ordered = income_states_ordered[19:-1]
+		income_states_ordered = income_states["income"]
 		policy_ordered = policy[:,ix_ordered][:,19:-1]
 
 		# TODO: do everything except interpoaltion in numba?
@@ -275,7 +277,7 @@ def hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, income_sta
 def find_eq(beliefs, params):
 	
 	shock_panel, agg_shocks = simulate_shocks(N_hh = 10000, T = 6000) # Want to use the same shocks when root finding. # T by 10 000 = 6000 * 10 0000
-	# Time to solve 10000 by 6000: 279 seconds
+	# Time to solve 10000 by 6000: 279 seconds -> 9.3 seconds
 
 	
 	K_ss = 1 # TODO solve for this
