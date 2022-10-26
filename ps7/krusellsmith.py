@@ -5,8 +5,10 @@ from numba import jit, njit, prange
 import numba as nb
 import ipdb
 import time
+import scipy as sp
 from scipy import interpolate
 from scipy.interpolate import interpn
+import pandas as pd
 
 params = {
 	"asset_grid": np.logspace(
@@ -236,9 +238,6 @@ def hh_history_panel(shock_panel, agg_shocks, income_states, asset_grid, policy)
 	panel["income"] = income_panel.flatten("F")
 	return(panel)
 
-
-
-#@jit(nopython=True, parallel = False)
 def hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, income_states, asset_grid, panel_year, panel_hh, policy, savings_panel, income_panel):
 	
 	ue_benefit = income_states[income_states["employed"] == False]["income"][0]
@@ -261,28 +260,22 @@ def hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, income_sta
 		else:
 			income = income_states[(not boom) & (income_states_K_agg_vec == K_agg)]
 			
-		#income = income_states[(income_states_boom_vec == boom) & (income_states_K_agg_vec == K_agg)]
-
 		salary = income["income"][0]
 		
 		income = employed * salary + (1-employed) * ue_benefit
 		
-		# TODO: below is extremely hacky!
 		income_states_ordered = income_states["income"]
-		policy_ordered = policy[:,ix_ordered][:,19:-1]
+		policy_ordered = policy[:,ix_ordered][:,19:-1] # TODO: hacky!
 
 		savings = interpn((asset_grid, income_states_ordered), policy_ordered, (savings, income), bounds_error = False, fill_value = 0)
 		savings_panel[t,:] = savings
 		income_panel[t,:] = income
-
-		#savings_panel, income_panel = hh_history_inner_loop(t, N_hh, K_agg_ix, K_agg_grid, panel, shock_panel, boom, income_states, asset_grid, panel_year, panel_hh, policy, savings_panel, income_panel, assets, employed, income)
 	return(savings_panel, income_panel)
 
 def find_eq(beliefs, params):
-	
-	shock_panel, agg_shocks = simulate_shocks(N_hh = 10000, T = 6000) # Want to use the same shocks when root finding. # T by 10 000 = 6000 * 10 0000
+	T = 6000
+	shock_panel, agg_shocks = simulate_shocks(N_hh = 10000, T = T) # Want to use the same shocks when root finding. # T by 10 000 = 6000 * 10 0000
 	# Time to solve 10000 by 6000: 279 seconds -> 9.3 seconds -> 5.38 secs
-
 	
 	K_ss = 1 # TODO solve for this
 	K_grid = np.linspace(
@@ -305,32 +298,24 @@ def find_eq(beliefs, params):
 		hh_policy = egm(P, params["asset_grid"], income_states["income"], rates, params["disc_factor"], params["risk_aver"], tol = 1e-6) # 1000 by 40
 	
 		hh_panel = hh_history_panel(shock_panel, agg_shocks, income_states, params["asset_grid"], hh_policy)
-		ipdb.set_trace()
-		hh_distribution = get_hh_distribution(hh_panel)
-		# Want 1000 by 40 by T, one distr for each T
-		K_implied = hh_distribution * hh_policy # TODO sum so that there are only T values left
+
+		# hh_distribution = get_hh_distribution(hh_panel) # TODO: redundant?
+		# Want 1000 by 40 by T, one distr for each T # applies to line above.
+		df = pd.DataFrame(hh_panel)
+		boom_years = pd.DataFrame(agg_shocks, columns = ["boom"])
+		boom_years["year"] = boom_years.index
+		K_implied = df.groupby(["year"]).sum()["assets"].reset_index()
+		K_implied = K_implied.join(boom_years)
+		K_implied_boom = K_implied_boom[K_implied.boom]
+		K_implied_bust = K_implied[~K_implied.boom]
 		
-		boom_coef_new = sp.stats.linregress(K_implied[0:-2], y=K_implied[1:-1])
-		#bust_coef_new = sp.stats.linregress(cap_stock_lag, y=cap_stock)
+		
+		boom_coef_new = sp.stats.linregress(K_implied_boom[0:-2], y=K_implied_boom[1:-1])
+		bust_coef_new = sp.stats.linregress(K_implied_bust[0:-2], y=K_implied_bust[1:-1])
 		diff = np.max(np.abs(boom_coef_new - boom_coef)) # TODO: Check all conditions (also busts)
 	return(diff)
 
 find_eq(np.array((0,1)), params)
-
-
-
-panel[0]["income"] = 1
-
-
-asset_grid.shape
-income_states["income"].shape
-policy.shape
-def get_hh_distribution():
-	pass
-
-policy.shape
-
-
 
 
 
