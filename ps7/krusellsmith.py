@@ -245,6 +245,9 @@ def hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, income_sta
 	ix_ordered = income_states["income"].argsort()
 	income_states = income_states[income_states["employed"]]
 
+	income_states_boom_vec = income_states["boom"]
+	income_states_K_agg_vec = income_states["K_agg"]
+
 	savings = np.zeros(N_hh)
 	for t in range(shock_panel.shape[0]):
 		
@@ -253,7 +256,12 @@ def hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, income_sta
 		boom = agg_shocks[t]
 		
 		employed = shock_panel[t, :]
-		income = income_states[(income_states["boom"] == boom) & (income_states["K_agg"] == K_agg)]
+		if boom:
+			income = income_states[(boom) & (income_states_K_agg_vec == K_agg)]
+		else:
+			income = income_states[(not boom) & (income_states_K_agg_vec == K_agg)]
+			
+		#income = income_states[(income_states_boom_vec == boom) & (income_states_K_agg_vec == K_agg)]
 
 		salary = income["income"][0]
 		
@@ -263,7 +271,6 @@ def hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, income_sta
 		income_states_ordered = income_states["income"]
 		policy_ordered = policy[:,ix_ordered][:,19:-1]
 
-		# TODO: do everything except interpoaltion in numba?
 		savings = interpn((asset_grid, income_states_ordered), policy_ordered, (savings, income), bounds_error = False, fill_value = 0)
 		savings_panel[t,:] = savings
 		income_panel[t,:] = income
@@ -271,13 +278,10 @@ def hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, income_sta
 		#savings_panel, income_panel = hh_history_inner_loop(t, N_hh, K_agg_ix, K_agg_grid, panel, shock_panel, boom, income_states, asset_grid, panel_year, panel_hh, policy, savings_panel, income_panel, assets, employed, income)
 	return(savings_panel, income_panel)
 
-
-
-
 def find_eq(beliefs, params):
 	
 	shock_panel, agg_shocks = simulate_shocks(N_hh = 10000, T = 6000) # Want to use the same shocks when root finding. # T by 10 000 = 6000 * 10 0000
-	# Time to solve 10000 by 6000: 279 seconds -> 9.3 seconds
+	# Time to solve 10000 by 6000: 279 seconds -> 9.3 seconds -> 5.38 secs
 
 	
 	K_ss = 1 # TODO solve for this
@@ -298,10 +302,8 @@ def find_eq(beliefs, params):
 		
 		rates = (interest_rates(K_grid, 1, alpha)).flatten()
 	
-
 		hh_policy = egm(P, params["asset_grid"], income_states["income"], rates, params["disc_factor"], params["risk_aver"], tol = 1e-6) # 1000 by 40
-
-		
+	
 		hh_panel = hh_history_panel(shock_panel, agg_shocks, income_states, params["asset_grid"], hh_policy)
 		ipdb.set_trace()
 		hh_distribution = get_hh_distribution(hh_panel)
