@@ -27,11 +27,12 @@ params = {
 P = params["P"]
 
 def employment(boom, pop = 1):
+	# TODO: define this 
 	if not boom:
 		return(pop - 0.1)
 	return(pop - 0.04)
 
-def tax(boom, pop):
+def tax(boom, ue_rr, pop):
 	emp = employment(boom)
 	return(ue_rr * (pop - emp) / emp)
 
@@ -67,7 +68,7 @@ def get_income_states(K_agg_grid, alpha):
 	income_states["boom"] = np.tile((1,1,0,0), 10)
 
 	ue_rr = 0.15
-	tax = 0.1 # TODO: should calculate for every capital level
+	tax = 0.1 # TODO: should calculate for every capital level and based on employment
 
 	for state in range(income_states.shape[0]):
 		if not income_states["employed"][state]:
@@ -95,16 +96,26 @@ def get_transition_matrix(P, K_agg_grid, beliefs):
 	PP
 		numpy array correspodning to a transition matrix from aggregate capital, and economic state today.
 	'''
-	
 
 	P_tiled = np.tile(P, (K_agg_grid.shape[0], K_agg_grid.shape[0])) # Note this includes idiosyncratic shocks, won't affect prices. 
 	K_trans_indic = find_K_transitions(beliefs, K_agg_grid)
-	# TODO: instead of repeating 4 times, we should include boom and bust differentiaion
-	#K_trans_indic = np.repeat(np.repeat(K_trans_indic, P.shape[0], axis = 0), P.shape[0], axis = 1)
+	
 	n_idio_shocks = 2
 
 	K_trans_indic = np.repeat(np.repeat(K_trans_indic, n_idio_shocks, axis = 0), n_idio_shocks, axis = 1)
-	PP = P_tiled * K_trans_indic
+	#PP = P_tiled * K_trans_indic
+
+
+	################
+	# Pandas indexing ensures the multiplication does what I want it to
+	miindex = pd.MultiIndex.from_product(
+    [K_agg_grid, ("bad", "good"), ("ue", "e")])
+
+	K_trans_indic_df = pd.DataFrame(K_trans_indic, index = miindex, columns = miindex)
+	# 10 is number of K levels
+	P_df = pd.DataFrame(np.tile(P, (10,10)), columns = miindex, index = miindex)
+
+	PP = K_trans_indic_df * P_df 
 	return(PP)
 
 def find_K_transitions(beliefs, K_agg_grid):
@@ -131,7 +142,7 @@ def find_K_transitions(beliefs, K_agg_grid):
 	return(i_mat)
 	
 def get_K_next(beliefs, K):
-	K_next = np.exp(beliefs[0] + beliefs[1] * K)
+	K_next = np.exp(beliefs[0]) * K**beliefs[1]
 	return(K_next)
 
 def interest_rates(K_grid, L, alpha):
@@ -158,9 +169,15 @@ def interest_rates(K_grid, L, alpha):
 def simulate_shocks(N_hh, T):
 	p_good = 0.875
 	agg_shock = []
+	agg_shock.append(True)
+
 	for time in range(T):
-		boom = np.random.uniform() < p_good
-		agg_shock.append(boom)
+		current = agg_shock[time]
+		stay = np.random.uniform() < p_good
+		if stay:
+			agg_shock.append(current)
+		else:
+			agg_shock.append(not current)
 
 	panel = np.empty((T, N_hh))
 	for hh in range(N_hh):
@@ -172,6 +189,7 @@ def simulate_shocks(N_hh, T):
 
 @jit(nopython=True, parallel = False)
 def sim_hh(T, hh_draws):
+	# TODO look into this
 	hh_employed= [True]
 	for time in prange(T-1):
 		p_ee = 0.5 # TODO. Might depend on aggregate state.  
@@ -190,6 +208,7 @@ def sim_hh(T, hh_draws):
 	return(hh_employed)
 
 def egm_asset_choices(rate, P, action_states, income_states, policy, disc_factor, risk_aver):
+	# Does this include all stetas (k agg, idio, agg shocks? =40=)
 	mu_cons_fut = ((1+rate) * np.expand_dims(action_states, axis = 1)  + income_states - policy)**(-risk_aver)
 	Ecf = np.matmul(mu_cons_fut, P.T)
 	cons_today = (disc_factor * (1+rate) * Ecf)**(-1/risk_aver)
@@ -233,6 +252,7 @@ def egm(P, asset_grid, income_states, rate, disc_factor, risk_aver, tol = 1e-6):
 	policy_guess
 		Numpy array of dimensions of asset_grid and income states
 	"""
+	# TODO: do I need to 
 	action_n = asset_grid.shape[0]
 	income_n = income_states.shape[0]
 	policy_guess = np.full((action_n, income_n), np.min(asset_grid)) # TODO update to 45 degree line
@@ -252,7 +272,6 @@ def egm(P, asset_grid, income_states, rate, disc_factor, risk_aver, tol = 1e-6):
 
 def hh_history_panel(shock_panel, agg_shocks, df, asset_grid, policy):
 	# for each hh and eyar, find income, assets, savings, consumption
-	
 	N_hh = shock_panel.shape[1]
 	years = shock_panel.shape[0]
 	assets = 0
@@ -277,19 +296,21 @@ def hh_history_panel(shock_panel, agg_shocks, df, asset_grid, policy):
 	return(panel)
 
 def hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, df, asset_grid, panel_year, panel_hh, policy, savings_panel, income_panel):
-	
-	ue_benefit = df[df["employed"] == False]["income"][0]
-	ix_ordered = df["income"].argsort()
-	income_states = df[df["employed"]]
 
-	income_states_boom_vec = income_states["boom"]
-	income_states_K_agg_vec_rep = income_states["K_agg"]
+	ue_benefit = df[df["employed"] == False]["income"][0]
+	#ix_ordered = df["income"].argsort()
+	income_states_df = df[df["employed"]]
+	income_states = df["income"][19:-1]
+	policy = policy[:,19:-1]
+
+	income_states_boom_vec = income_states_df["boom"]
+	income_states_K_agg_vec_rep = income_states_df["K_agg"]
 	income_states_K_agg_vec = np.unique(income_states_K_agg_vec_rep)
 
 	savings = np.zeros(N_hh)
-	boom_incomes = np.asarray(income_states[income_states_boom_vec])
+	boom_incomes = np.asarray(income_states_df[income_states_boom_vec])
 
-	bust_incomes = np.asarray(income_states[~income_states_boom_vec])
+	bust_incomes = np.asarray(income_states_df[~income_states_boom_vec])
 	
 	for t in range(shock_panel.shape[0]):
 		
@@ -303,18 +324,12 @@ def hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, df, asset_
 			income = boom_incomes[income_states_K_agg_vec == K_agg]
 		else:
 			income = bust_incomes[income_states_K_agg_vec == K_agg]
-			
-		#salary = np.asarray(income.income)[0] # TODO: this operation is expensive!
-		# salary = income.iloc[0]["income"] Also expensive
 		
 		salary = income[0,0]
 		
 		income = employed * salary + (1-employed) * ue_benefit
 		
-		income_states_ordered = income_states["income"]
-		policy_ordered = policy[:,ix_ordered][:,19:-1] # TODO: hacky!
-
-		savings = interpn((asset_grid, income_states_ordered), policy_ordered, (savings, income), bounds_error = False, fill_value = 0)
+		savings = interpn((asset_grid, income_states), policy, (savings, income), bounds_error = False, fill_value = np.min(K_agg)/N_hh)
 		savings_panel[t,:] = savings
 		income_panel[t,:] = income
 	return(savings_panel, income_panel)
@@ -335,14 +350,16 @@ def find_eq(beliefs, params):
 	rates = (interest_rates(K_grid, 1, alpha)).flatten()
 	income_states = pd.DataFrame(income_states)
 	rates = pd.DataFrame(rates)
-	df = income_states.merge(rates, 'left', left_on = ("K_agg", "boom"), right_on = ('K_agg', 'boom'))
 
+	df = income_states.merge(rates, 'left', left_on = ("K_agg", "boom"), right_on = ('K_agg', 'boom'))
+	
 	diff = 100
 	while diff > 1e-3:
-		# TODO: replace with optimization algorithm
-		
+
 		P = get_transition_matrix(params["P"], K_grid, beliefs)
-			
+		df = df.sort_values(by  = ["income"])
+		P = np.asarray(P)[df.index]
+
 		hh_policy = egm(P, params["asset_grid"], np.asarray(df["income"]), np.asarray(df["rate"]), params["disc_factor"], params["risk_aver"], tol = 1e-6) # 1000 by 40
 	
 		hh_panel = hh_history_panel(shock_panel, agg_shocks, df, params["asset_grid"], hh_policy)
@@ -355,11 +372,13 @@ def find_eq(beliefs, params):
 		boom_years["year"] = boom_years.index
 		K_implied = df_hh.groupby(["year"]).sum()["assets"].reset_index()
 		K_implied = K_implied.merge(boom_years, left_on = "year", right_on = "year")
+
 		K_implied_boom = np.log(K_implied[K_implied.boom]["assets"])
 		K_implied_bust = np.log(K_implied[~K_implied.boom]["assets"])
 		
-		boom_coef_new = sp.stats.linregress(K_implied_boom[0:-2], y=K_implied_boom[1:-1])
-		bust_coef_new = sp.stats.linregress(K_implied_bust[0:-2], y=K_implied_bust[1:-1])
+		
+		boom_coef_new = sp.stats.linregress(K_implied_boom[1:-2], y=K_implied_boom[2:-1])
+		bust_coef_new = sp.stats.linregress(K_implied_bust[1:-2], y=K_implied_bust[2:-1])
 		boom_coef_new = np.array([boom_coef_new.intercept, boom_coef_new.slope])
 		bust_coef_new = np.array([bust_coef_new.intercept, bust_coef_new.slope])
 
@@ -368,22 +387,21 @@ def find_eq(beliefs, params):
 
 		diff = np.max(np.abs(boom_coef_new - boom_coef)) # TODO: Check all conditions (also busts)
 
-		boom_coef = boom_coef * 0.9 + 0.1 * boom_coef_new
 		bust_coef = bust_coef * 0.9 + 0.1 * bust_coef_new
+		boom_coef = boom_coef * 0.9 + 0.1 * boom_coef_new
+
 		beliefs = np.array([bust_coef,boom_coef])
 		print(diff)
 		print(beliefs)
 	return(beliefs)
 
-start_belief = np.array([[7.8,0.09], [0,1]])
+start_belief = np.array([[0.1,1], [0.1,1]])
 
 belief_star = find_eq(start_belief, params)
 
-tmp = np.array([[7.86998502, 0.09237674],
-       [4.28889857, 0.5049082 ]])
-tmp[0]
 
 # TODO LIST
+# Calculate tax based on aggregate employment
 # Markov structure of income shocks (?) Yes? See slides I guess
 # Steady state capital
 # How to treat L?
