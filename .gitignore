@@ -154,3 +154,6 @@ dmypy.json
 *.toc
 *.fdb_latexmk
 *.fls
+
+# Folders
+other/

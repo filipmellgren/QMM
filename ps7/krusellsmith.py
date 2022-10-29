@@ -97,7 +97,7 @@ def get_transition_matrix(P, K_agg_grid, beliefs):
 		numpy array correspodning to a transition matrix from aggregate capital, and economic state today.
 	'''
 
-	P_tiled = np.tile(P, (K_agg_grid.shape[0], K_agg_grid.shape[0])) # Note this includes idiosyncratic shocks, won't affect prices. 
+	#P_tiled = np.tile(P, (K_agg_grid.shape[0], K_agg_grid.shape[0])) # Note this includes idiosyncratic shocks, won't affect prices. 
 	K_trans_indic = find_K_transitions(beliefs, K_agg_grid)
 	
 	n_idio_shocks = 2
@@ -179,7 +179,7 @@ def simulate_shocks(N_hh, T):
 		else:
 			agg_shock.append(not current)
 
-	panel = np.empty((T, N_hh))
+	panel = np.empty((T, N_hh)) # TODO is this made correctly?
 	for hh in range(N_hh):
 		hh_draws = np.random.uniform(size = T-1)
 		hh_employed = sim_hh(T, hh_draws)
@@ -194,7 +194,7 @@ def sim_hh(T, hh_draws):
 	for time in prange(T-1):
 		p_ee = 0.5 # TODO. Might depend on aggregate state.  
 		p_ue = 0.2 # TODO
-		hh_draw = hh_draws[time] 
+		hh_draw = hh_draws[time] # TODO guard clause
 		if hh_employed[-1]:
 			if hh_draw > p_ee:
 				hh_employed.append(True)
@@ -208,7 +208,6 @@ def sim_hh(T, hh_draws):
 	return(hh_employed)
 
 def egm_asset_choices(rate, P, action_states, income_states, policy, disc_factor, risk_aver):
-	# Does this include all stetas (k agg, idio, agg shocks? =40=)
 	mu_cons_fut = ((1+rate) * np.expand_dims(action_states, axis = 1)  + income_states - policy)**(-risk_aver)
 	Ecf = np.matmul(mu_cons_fut, P.T)
 	cons_today = (disc_factor * (1+rate) * Ecf)**(-1/risk_aver)
@@ -279,6 +278,7 @@ def hh_history_panel(shock_panel, agg_shocks, df, asset_grid, policy):
 	panel["year"] = np.tile(range(shock_panel.shape[0]),shock_panel.shape[1])
 	panel["hh"] = np.repeat(range(shock_panel.shape[1]),shock_panel.shape[0])
 	panel["assets"][panel["year"] == 0] = 0
+
 	K_agg_grid = np.unique(df["K_agg"])
 
 	panel_year = panel["year"]
@@ -334,10 +334,18 @@ def hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, df, asset_
 		income_panel[t,:] = income
 	return(savings_panel, income_panel)
 
+def update_beliefs(K, ix):
+	burn_in = 1000
+	ix = ix[burn_in:-2]
+	K_present = np.log(K[ix])
+	K_lead = np.log(K[ix+1])
+	coef_new = sp.stats.linregress(K_present, y=K_lead)
+	coef_new = np.array([coef_new.intercept, coef_new.slope])
+	return(coef_new)
+
 def find_eq(beliefs, params):
 	T = 6000
-	shock_panel, agg_shocks = simulate_shocks(N_hh = 10000, T = T) # Want to use the same shocks when root finding. # T by 10 000 = 6000 * 10 0000
-	# Time to solve 10000 by 6000: 279 seconds -> 9.3 seconds -> 5.38 secs
+	shock_panel, agg_shocks = simulate_shocks(N_hh = 10000, T = T) 
 	
 	K_ss = 17 # TODO solve for this (this comes from Ali)
 	K_grid = np.linspace(
@@ -355,32 +363,27 @@ def find_eq(beliefs, params):
 	
 	diff = 100
 	while diff > 1e-3:
-
 		P = get_transition_matrix(params["P"], K_grid, beliefs)
 		df = df.sort_values(by  = ["income"])
-		P = np.asarray(P)[df.index]
+		P = np.asarray(P)[df.index][:,df.index]
 
 		hh_policy = egm(P, params["asset_grid"], np.asarray(df["income"]), np.asarray(df["rate"]), params["disc_factor"], params["risk_aver"], tol = 1e-6) # 1000 by 40
 	
+		# Debug from here
 		hh_panel = hh_history_panel(shock_panel, agg_shocks, df, params["asset_grid"], hh_policy)
 
-		# hh_distribution = get_hh_distribution(hh_panel) # TODO: redundant?
-		# Want 1000 by 40 by T, one distr for each T # applies to line above.
-		
 		df_hh = pd.DataFrame(hh_panel)
 		boom_years = pd.DataFrame(agg_shocks, columns = ["boom"])
 		boom_years["year"] = boom_years.index
 		K_implied = df_hh.groupby(["year"]).sum()["assets"].reset_index()
+		
 		K_implied = K_implied.merge(boom_years, left_on = "year", right_on = "year")
 
-		K_implied_boom = np.log(K_implied[K_implied.boom]["assets"])
-		K_implied_bust = np.log(K_implied[~K_implied.boom]["assets"])
+		boom_ix = K_implied[K_implied.boom]["assets"].index
+		bust_ix = K_implied[~K_implied.boom]["assets"].index
 		
-		
-		boom_coef_new = sp.stats.linregress(K_implied_boom[1:-2], y=K_implied_boom[2:-1])
-		bust_coef_new = sp.stats.linregress(K_implied_bust[1:-2], y=K_implied_bust[2:-1])
-		boom_coef_new = np.array([boom_coef_new.intercept, boom_coef_new.slope])
-		bust_coef_new = np.array([bust_coef_new.intercept, bust_coef_new.slope])
+		boom_coef_new = update_beliefs(K_implied["assets"], boom_ix)
+		bust_coef_new = update_beliefs(K_implied["assets"], bust_ix)
 
 		boom_coef = beliefs[1]
 		bust_coef = beliefs[0]
@@ -398,6 +401,7 @@ def find_eq(beliefs, params):
 start_belief = np.array([[0.1,1], [0.1,1]])
 
 belief_star = find_eq(start_belief, params)
+
 
 
 # TODO LIST
