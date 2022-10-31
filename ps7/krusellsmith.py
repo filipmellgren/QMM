@@ -9,6 +9,7 @@ import scipy as sp
 from scipy import interpolate, stats
 from scipy.interpolate import interpn
 import pandas as pd
+import itertools
 
 params = {
 	"asset_grid": np.logspace(
@@ -24,19 +25,20 @@ params = {
 	"risk_aver": 1.5
 	}
 
+
+
 P = params["P"]
 
-def employment(boom, pop = 1):
-	# TODO: define this 
+def employment(boom, pop):
 	if not boom:
-		return(pop - 0.1)
-	return(pop - 0.04)
+		return(pop*(1-0.1))
+	return(pop*(1-0.04))
 
 def tax(boom, ue_rr, pop):
-	emp = employment(boom)
+	emp = employment(boom, pop)
 	return(ue_rr * (pop - emp) / emp)
 
-def wage(boom, K, alpha, pop = 1):
+def wage(boom, K, alpha, pop):
 	L = employment(boom, pop)
 	MPL = (1-alpha) * (K/L)**alpha
 	if not boom:
@@ -51,32 +53,29 @@ def MPK(boom, K, L, alpha):
 
 def get_rates(K, L, alpha):
 	delta = 0.025
-	rates = np.array([MPK(False, K, L, alpha), MPK(True, K, L, alpha)]) - delta
+	bust_emp = employment(False, L)
+	boom_emp = employment(True, L)
+	rates = np.array([MPK(False, K, bust_emp, alpha), MPK(True, K, boom_emp, alpha)]) - delta
 	return(rates)
 
-def get_prices(K):
-	wages = np.array([wage(False), wage(True)])
-
-	return(wages, rates)
-
-def get_income_states(K_agg_grid, alpha):
+def get_income_states(K_agg_grid, L_tilde, alpha):
 	# K (all income states)
-	# TODO: do not forget taxes
 	income_states = np.empty(40, dtype=[("income", "double"), ("K_agg", "double"), ("employed", "bool_"), ("boom", "bool_")]) # TODO hardcoded income states
 	income_states["K_agg"] = np.repeat(K_agg_grid, 4)
 	income_states["employed"] = np.tile((0,1), 20)
 	income_states["boom"] = np.tile((1,1,0,0), 10)
 
 	ue_rr = 0.15
-	tax = 0.1 # TODO: should calculate for every capital level and based on employment
+	pop = L_tilde
 
 	for state in range(income_states.shape[0]):
 		if not income_states["employed"][state]:
 			income_states["income"][state] = ue_rr
 			continue
 		boom = income_states["boom"][state]
+		tax_rate = tax(boom, ue_rr, pop)
 		K = income_states["K_agg"][state]
-		income_states["income"][state] = (1 - tax) * wage(boom, K, alpha)
+		income_states["income"][state] = (1 - tax_rate) * wage(boom, K, alpha, pop)
 	
 	return(income_states)
 
@@ -145,12 +144,13 @@ def get_K_next(beliefs, K):
 	K_next = np.exp(beliefs[0]) * K**beliefs[1]
 	return(K_next)
 
-def interest_rates(K_grid, L, alpha):
+def interest_rates(K_grid, L_tilde, alpha):
 	''' Calculates interest rates for all TFP shocks and capital levels. 
 
 	'''
 	agg_shocks = (1,0)
 
+	L = L_tilde
 	n_K_states = K_grid.shape[0]
 
 	rates = np.empty(K_grid.shape[0]* len(agg_shocks), dtype=[("rate", "double"), ("boom", "bool_"), ("K_agg", "double")]) # 4 is just idio x agg shocks
@@ -208,6 +208,7 @@ def sim_hh(T, hh_draws):
 	return(hh_employed)
 
 def egm_asset_choices(rate, P, action_states, income_states, policy, disc_factor, risk_aver):
+	# TODO: unsure this works as intended. Deprecate eventually.
 	mu_cons_fut = ((1+rate) * np.expand_dims(action_states, axis = 1)  + income_states - policy)**(-risk_aver)
 	Ecf = np.matmul(mu_cons_fut, P.T)
 	cons_today = (disc_factor * (1+rate) * Ecf)**(-1/risk_aver)
@@ -269,15 +270,13 @@ def egm(P, asset_grid, income_states, rate, disc_factor, risk_aver, tol = 1e-6):
 
 	return(policy_guess)
 
-def hh_history_panel(shock_panel, agg_shocks, df, asset_grid, policy):
+def hh_history_panel(shock_panel, agg_shocks, df, asset_grid, policy, income_order):
 	# for each hh and eyar, find income, assets, savings, consumption
 	N_hh = shock_panel.shape[1]
 	years = shock_panel.shape[0]
-	assets = 0
 	panel = np.empty(N_hh * years, dtype=[("year", "int16"), ("hh", "int16"), ("income", "double"), ("assets", "double")])
 	panel["year"] = np.tile(range(shock_panel.shape[0]),shock_panel.shape[1])
 	panel["hh"] = np.repeat(range(shock_panel.shape[1]),shock_panel.shape[0])
-	panel["assets"][panel["year"] == 0] = 0
 
 	K_agg_grid = np.unique(df["K_agg"])
 
@@ -288,33 +287,37 @@ def hh_history_panel(shock_panel, agg_shocks, df, asset_grid, policy):
 	income_panel = np.zeros(shock_panel.shape)
 	
 	start = time.time()
-	savings_panel, income_panel = hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, df, asset_grid, panel_year, panel_hh, policy, savings_panel, income_panel)
+	savings_panel, income_panel = hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, df, asset_grid, panel_year, panel_hh, policy, savings_panel, income_panel, income_order)
 	end = time.time()
 	print(end - start)
 	panel["assets"] = savings_panel.flatten("F")
 	panel["income"] = income_panel.flatten("F")
 	return(panel)
 
-def hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, df, asset_grid, panel_year, panel_hh, policy, savings_panel, income_panel):
+def hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, df, asset_grid, panel_year, panel_hh, policy, savings_panel, income_panel, income_order):
 
 	ue_benefit = df[df["employed"] == False]["income"][0]
 	#ix_ordered = df["income"].argsort()
 	income_states_df = df[df["employed"]]
 	income_states = df["income"][19:-1]
-	policy = policy[:,19:-1]
-
+	income_states = income_order
+	income_order_ix = np.argsort(income_states)
+	income_states = income_states[income_order_ix]
+	policy = policy[:,income_order_ix]
+	# TODO: only keep distinct income ix to keep things small
+	
 	income_states_boom_vec = income_states_df["boom"]
 	income_states_K_agg_vec_rep = income_states_df["K_agg"]
 	income_states_K_agg_vec = np.unique(income_states_K_agg_vec_rep)
 
-	savings = np.zeros(N_hh)
+	savings = np.zeros(N_hh) + 17 # TODO: K_ss
 	boom_incomes = np.asarray(income_states_df[income_states_boom_vec])
 
 	bust_incomes = np.asarray(income_states_df[~income_states_boom_vec])
 	
 	for t in range(shock_panel.shape[0]):
 		
-		K_agg = np.sum(savings)
+		K_agg = np.mean(savings)
 		K_agg = K_agg_grid[np.argmin(np.abs(K_agg_grid - K_agg))] # Force to grid
 		boom = agg_shocks[t]
 		
@@ -329,7 +332,15 @@ def hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, df, asset_
 		
 		income = employed * salary + (1-employed) * ue_benefit
 		
-		savings = interpn((asset_grid, income_states), policy, (savings, income), bounds_error = False, fill_value = np.min(K_agg)/N_hh)
+		# TODO: can I redefine the policy matrix to make it easier to index?
+		# like policy[agg_shock, K_agg, employment_vec, savings]
+		
+		income_ix = np.searchsorted(income_states, income)
+		asset_ix = np.searchsorted(asset_grid, savings) # previous savings corresponds to current assets
+		savings = policy[asset_ix, income_ix]
+		
+		#savings = interpn((asset_grid, income_states), policy, (savings, income), bounds_error = False, fill_value = np.min(K_agg))
+
 		savings_panel[t,:] = savings
 		income_panel[t,:] = income
 	return(savings_panel, income_panel)
@@ -339,9 +350,9 @@ def update_beliefs(K, ix):
 	ix = ix[burn_in:-2]
 	K_present = np.log(K[ix])
 	K_lead = np.log(K[ix+1])
-	coef_new = sp.stats.linregress(K_present, y=K_lead)
-	coef_new = np.array([coef_new.intercept, coef_new.slope])
-	return(coef_new)
+	slope, intercept, r, p, se = sp.stats.linregress(K_present, y=K_lead)
+	coef_new = np.array([intercept, slope])
+	return(coef_new, r**2)
 
 def find_eq(beliefs, params):
 	T = 6000
@@ -353,62 +364,241 @@ def find_eq(beliefs, params):
 		stop = 1.25 * K_ss,
 		num = 10)
 	alpha = 0.36
+	L_tilde = 1/0.9
 	
-	income_states = get_income_states(K_grid, alpha)
-	rates = (interest_rates(K_grid, 1, alpha)).flatten()
+	income_states = get_income_states(K_grid, L_tilde, alpha)
+	rates = (interest_rates(K_grid, L_tilde, alpha)).flatten()
 	income_states = pd.DataFrame(income_states)
 	rates = pd.DataFrame(rates)
 
 	df = income_states.merge(rates, 'left', left_on = ("K_agg", "boom"), right_on = ('K_agg', 'boom'))
 	
-	diff = 100
-	while diff > 1e-3:
-		P = get_transition_matrix(params["P"], K_grid, beliefs)
-		df = df.sort_values(by  = ["income"])
-		P = np.asarray(P)[df.index][:,df.index]
+	loss = 100
 
-		hh_policy = egm(P, params["asset_grid"], np.asarray(df["income"]), np.asarray(df["rate"]), params["disc_factor"], params["risk_aver"], tol = 1e-6) # 1000 by 40
-	
-		# Debug from here
-		hh_panel = hh_history_panel(shock_panel, agg_shocks, df, params["asset_grid"], hh_policy)
+	while loss > 1e-3:
+		P = get_transition_matrix(params["P"], K_grid, beliefs)
+		income_index = df.sort_values(by  = ["income"]).index
+
+		#P = np.asarray(P)[df.index][:,df.index]
+		# TODO: current policy gives first guess. Why does it not update better?
+		hh_policy, income_order = egm_dataframe(df, P, K_grid, params["asset_grid"], params, tol = 1e-6)
+		#hh_policy = egm(P, params["asset_grid"], np.asarray(df["income"]), np.asarray(df["rate"]), params["disc_factor"], params["risk_aver"], tol = 1e-6) # 1000 by 40
+
+		# Debug this
+		
+		hh_panel = hh_history_panel(shock_panel, agg_shocks, df, params["asset_grid"], hh_policy, income_order)
+		# Debug above
 
 		df_hh = pd.DataFrame(hh_panel)
 		boom_years = pd.DataFrame(agg_shocks, columns = ["boom"])
 		boom_years["year"] = boom_years.index
-		K_implied = df_hh.groupby(["year"]).sum()["assets"].reset_index()
+		K_implied = df_hh.groupby(["year"]).mean()["assets"].reset_index()
 		
 		K_implied = K_implied.merge(boom_years, left_on = "year", right_on = "year")
 
 		boom_ix = K_implied[K_implied.boom]["assets"].index
 		bust_ix = K_implied[~K_implied.boom]["assets"].index
 		
-		boom_coef_new = update_beliefs(K_implied["assets"], boom_ix)
-		bust_coef_new = update_beliefs(K_implied["assets"], bust_ix)
+		boom_coef_new, r2 = update_beliefs(K_implied["assets"], boom_ix)
+		bust_coef_new, r2 = update_beliefs(K_implied["assets"], bust_ix)
 
-		boom_coef = beliefs[1]
 		bust_coef = beliefs[0]
+		boom_coef = beliefs[1]
 
-		diff = np.max(np.abs(boom_coef_new - boom_coef)) # TODO: Check all conditions (also busts)
+		diff = np.max(boom_coef_new - boom_coef)
+		loss = diff**2
 
 		bust_coef = bust_coef * 0.9 + 0.1 * bust_coef_new
 		boom_coef = boom_coef * 0.9 + 0.1 * boom_coef_new
 
 		beliefs = np.array([bust_coef,boom_coef])
-		print(diff)
+		print(loss)
 		print(beliefs)
+		print(r2)
 	return(beliefs)
 
-start_belief = np.array([[0.1,1], [0.1,1]])
+def egm_dataframe(df, P, K_grid, asset_grid, params, tol = 1e-6):
+	df_copy = df.copy()
+
+	action_n = params["asset_grid"].shape[0]
+	income_n = 40 #income_states.shape[0]
+
+	assets_df = itertools.product(asset_grid, K_grid, [True, False])
+	assets_df = pd.DataFrame(assets_df)
+	assets_df = assets_df.rename(columns={0: "assets", 1: "K_agg", 2 : "boom"})
+	df = df.merge(assets_df, how = "left", left_on=["K_agg", "boom"], right_on = ["K_agg", "boom"]) # All possible states
+	df = df.set_index(["K_agg", "employed", "boom", "assets"])
+
+	policy_guess = df.copy()
+	
+	policy_guess["policy_guess"] = policy_guess.index.get_level_values(3) # Guess must be on grid
+	
+	
+	# pol guess to something we can join to df
+	
+	diff = tol + 1
+
+	P_df = get_P_df(P)
+	while diff > tol:
+		print(diff)
+		diff = 0
+		
+		policy_guess_mat, income_order, policy_guess_upd = egm_policy(df, P_df, K_grid, policy_guess["policy_guess"], params)
+		
+		policy_guess_upd = policy_guess_upd.reset_index().set_index(["K_agg", "boom", "employed", "assets"])
+
+		if policy_guess_upd["policy_guess"].isnull().values.any():
+			ipdb.set_trace()
+			pass
+		
+		diff = max(np.max(np.abs(policy_guess_upd["policy_guess"] - policy_guess["policy_guess"])), diff)
+		diff = max(policy_guess_upd["policy_guess"] - policy_guess["policy_guess"])
+		policy_guess = policy_guess_upd.copy()
+
+	return(policy_guess_mat, income_order)
+
+def get_P_df(P):
+	P.index = P.index.set_names(["K_agg_f", "boom_f", "employed_f"])
+	P_df = pd.melt(P, id_vars=None, value_vars=None, var_name=["K_agg", "boom", "employed"], value_name='prob', col_level=None, ignore_index=False).reset_index()
+
+	P_df.loc[P_df["boom"] == "good", "boom"] = True
+	P_df.loc[P_df["boom"] == "bad", "boom"] = False
+	P_df.loc[P_df["boom_f"] == "good", "boom_f"] = True
+	P_df.loc[P_df["boom_f"] == "bad", "boom_f"] = False
+
+	P_df.loc[P_df["employed"] == "e", "employed"] = True
+	P_df.loc[P_df["employed"] == "ue", "employed"] = False
+	P_df.loc[P_df["employed_f"] == "e", "employed_f"] = True
+	P_df.loc[P_df["employed_f"] == "ue", "employed_f"] = False
+	return(P_df)
+
+def get_df_future(df, P_df, params):
+	''' Gives df with all possible values of mu_cons, with associated transition probabilities form all possible states
+	'''
+	df["mu_cons"] = ((1+df.rate) * df.assets + df.income - df.policy_guess)**(-params["risk_aver"])
+	
+	if np.any((1+df.rate) * df.assets + df.income - df.policy_guess < 0):
+		print(min((1+df.rate) * df.assets + df.income - df.policy_guess))
+		ipdb.set_trace()
+	if df.mu_cons.isnull().sum() != 0:
+		ipdb.set_trace()
+		# Hypothesis: using wrong interest rate (shift one period here or rthere?)
+		df[(1+df.rate) * df.assets + df.income - df.policy_guess < 0]
+		pass
+
+	assert df.mu_cons.isnull().sum() == 0, "There is negative consumption given policy."
+	
+	df_fut = df[["K_agg", "boom", "employed", "assets", "mu_cons", "rate"]]
+	df_fut = df_fut.merge(P_df, how = "left", left_on = ["K_agg", "boom", "employed"], right_on = ["K_agg", "boom", "employed"])
+	df_fut["exp_term"] = df_fut["prob"] * df_fut["mu_cons"] * (1 + df_fut["rate"])
+	# Exclude values made impossible by the K law of motion
+	df_fut = df_fut[df_fut["exp_term"]!=0]
+	df_fut = df_fut.set_index(["K_agg_f", "boom_f", "employed_f", "assets"])
+	assert df_fut.exp_term.isnull().sum() == 0, "There are null values in the expectation term of the df_fut DataFrame."
+	return(df_fut)
+
+def roll_df_back(df):
+	df_lag = df[["K_agg", "boom", "employed", "assets", "policy_guess"]]
+	df_lag = df_lag.rename(columns={"K_agg": "K_agg_f", "boom": "boom_f", "employed" : "employed_f", "assets" : "assets_f", "policy_guess" : "assets"})
+	# Rename policy to asset for join with future values (and similar for others, roll them back one period)
+	df_lag= df_lag.set_index(["K_agg_f", "boom_f", "employed_f", "assets"])
+	return(df_lag)
+
+def get_exp_mu_fut_df(df_fut, df_from):
+	'''
+	df_fut: tells us for each from-income state and possible policy, what is the mu_cons with associated probability. Probability comes entirely from from income-state, from assets are irrelevant. mu_cons depends on policy choice.
+	
+	df_from maps from all states to policy. It is used to find what policies in df_fut that will actually be relevant.
+
+	'''
+	
+	exp_df = df_fut.join(df_from, how = "inner") # Inner join tells us given state today, what is probability weighted value of each possible state in the future
+
+	assert exp_df.exp_term.isnull().sum() == 0, "There are null values in the expectation term"
+	
+	exp_df = exp_df.reset_index().set_index(["K_agg_f", "boom_f", "employed_f", "assets_f"]).groupby(level=[0,1,2,3]).sum().rename(columns = {"exp_term" : "Emucf", "rate" : "rate_prime"})
+
+	assert min(exp_df["prob"]) == 1, "Probabilities sum to less than one"
+	assert max(exp_df["prob"]) == 1, "Probabilities sum to more than one"
+
+
+	# From all possible states, what is the expected marginal utility of consumption tomorrow? (Given current policy)
+	# Roll forward: 
+
+	exp_df = exp_df[["Emucf", "rate_prime"]].reset_index().rename(columns = {"K_agg_f" : "K_agg", "boom_f" : "boom", "employed_f" : "employed", "assets_f" : "assets"}).set_index(["K_agg", "boom", "employed", "assets"])
+	
+	return(exp_df)
+
+def egm_policy(df, P_df, K_grid, policy_guess, params):
+
+	disc_factor = 0.99
+	risk_aver = 1.5
+	
+	df = df.join(policy_guess)
+	df = df.reset_index()
+
+	df_fut = get_df_future(df, P_df, params)
+
+	df_from = roll_df_back(df)
+	
+	exp_df = get_exp_mu_fut_df(df_fut, df_from) 
+	
+	df = df.set_index(["K_agg", "boom", "employed", "assets"])
+
+	df = df.join(exp_df).reset_index()
+	
+	# Note, rate already in expectation
+	df["cons_today"] = (disc_factor * df["Emucf"])**(-1/risk_aver)
+	df["endog_assets"] = (1/(1+df["rate"])) * (df["cons_today"] + df["policy_guess"] - df["income"])
+	# TODO: should nedog assets be rateprime or rate?
+	
+	df = df.set_index(["K_agg", "boom", "employed", "policy_guess"])
+
+	policy_mat = np.empty((1000, 40)) # TODO don't hard code
+	exog_grid = params["asset_grid"]
+	ss = 0
+	income_order = np.empty(40)
+	ix_list = []
+	policy_list = []
+	
+	for ix, new_df in df.groupby(level=[0,1,2]):
+		
+		ix_list.append(ix)
+		income = new_df.income.iloc[0]
+		income_order[ss] = income
+		endog_x = np.asarray(new_df["endog_assets"])
+		outcome = np.asarray(new_df.index.get_level_values(3))
+		
+		policy_exog_grid = np.interp(x = exog_grid, xp = endog_x, fp = outcome)
+		
+		index_val = np.searchsorted(exog_grid, policy_exog_grid, side = "left")
+		
+		policy_mat[:,ss] = exog_grid[index_val] # round to grid for compatibility with later joins
+		ss += 1
+		
+	
+	new_policy_guess = pd.DataFrame(policy_mat, columns = ix_list)
+	new_policy_guess["assets"] = exog_grid
+	new_policy_guess = pd.melt(new_policy_guess, id_vars = "assets")
+	new_policy_guess.index = pd.MultiIndex.from_tuples(new_policy_guess.variable)
+	new_policy_guess = new_policy_guess.rename(columns = {"value" : "policy_guess"})
+	new_policy_guess.index = new_policy_guess.index.set_names(["K_agg", "boom", "employed"])
+	new_policy_guess = new_policy_guess[["policy_guess", "assets"]]
+
+	return(policy_mat, income_order, new_policy_guess)
+
+
+start_belief = np.array([[0,1], [0,1]])
+#start_belief = np.array([[0.2,0.9], [0.2,0.9]])
 
 belief_star = find_eq(start_belief, params)
 
 
-
 # TODO LIST
-# Calculate tax based on aggregate employment
-# Markov structure of income shocks (?) Yes? See slides I guess
+
+
 # Steady state capital
-# How to treat L?
+
 # HH needs to take next period rates into account
 # These will depend on capital levels, which are set by the HH beliefs
 
