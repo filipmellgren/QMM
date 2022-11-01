@@ -25,9 +25,12 @@ params = {
 	"risk_aver": 1.5
 	}
 
+#params["asset_grid"] = np.linspace(start = 0, stop = 300, num = 1500)
 
 
 P = params["P"]
+
+
 
 def employment(boom, pop):
 	if not boom:
@@ -166,7 +169,7 @@ def interest_rates(K_grid, L_tilde, alpha):
 		
 	return(rates)
 
-def simulate_shocks(N_hh, T):
+def simulate_shocks(N_hh, T, P):
 	p_good = 0.875
 	agg_shock = []
 	agg_shock.append(True)
@@ -180,31 +183,47 @@ def simulate_shocks(N_hh, T):
 			agg_shock.append(not current)
 
 	panel = np.empty((T, N_hh)) # TODO is this made correctly?
+	p_b_ue = np.sum(P[0,(1,3)])
+	p_b_e = np.sum(P[1,(1,3)])
+	p_g_ue = np.sum(P[2,(1,3)])
+	p_g_e = np.sum(P[3,(1,3)])
+	# TODO: can this be jitted?
 	for hh in range(N_hh):
 		hh_draws = np.random.uniform(size = T-1)
-		hh_employed = sim_hh(T, hh_draws)
+		hh_employed = sim_hh(agg_shock, T, hh_draws, p_b_ue, p_b_e, p_g_ue, p_g_e)
 		panel[:,hh] = np.asarray(hh_employed)
 
 	return(panel, agg_shock)
 
 @jit(nopython=True, parallel = False)
-def sim_hh(T, hh_draws):
-	# TODO look into this
-	hh_employed= [True]
+def sim_hh(agg_shock, T, hh_draws, p_b_ue, p_b_e, p_g_ue, p_g_e):
+	hh_employed = [True]
 	for time in prange(T-1):
-		p_ee = 0.5 # TODO. Might depend on aggregate state.  
-		p_ue = 0.2 # TODO
-		hh_draw = hh_draws[time] # TODO guard clause
-		if hh_employed[-1]:
-			if hh_draw > p_ee:
+		hh_draw = hh_draws[-1]
+		if hh_draw < p_b_ue:
+			hh_employed.append(True)
+			continue
+		if hh_draw > p_g_e:
+			hh_employed.append(False)
+			continue
+		employed = hh_employed[-1]
+		if not employed:
+			if hh_draw < p_g_ue:
 				hh_employed.append(True)
-			else:
+				continue
+			if hh_draw > p_g_ue:
 				hh_employed.append(False)
-		else:
-			if hh_draw > p_ue:
+				continue
+		if hh_draw < p_b_e:
 				hh_employed.append(True)
-			else:
+				continue
+		boom = agg_shock[time]
+		if not boom:
+			if hh_draw > p_b_e:
 				hh_employed.append(False)
+				continue
+		if hh_draw < p_g_e:
+			hh_employed.append(True)
 	return(hh_employed)
 
 def egm_asset_choices(rate, P, action_states, income_states, policy, disc_factor, risk_aver):
@@ -356,12 +375,12 @@ def update_beliefs(K, ix):
 
 def find_eq(beliefs, params):
 	T = 6000
-	shock_panel, agg_shocks = simulate_shocks(N_hh = 10000, T = T) 
+	shock_panel, agg_shocks = simulate_shocks(1000, T, params["P"]) 
 	
-	K_ss = 17 # TODO solve for this (this comes from Ali)
+	K_ss = 40 # TODO solve for this (this comes from Ali)
 	K_grid = np.linspace(
-		start = 0.85 * K_ss,
-		stop = 1.25 * K_ss,
+		start = 0.75 * K_ss,
+		stop = 1.35 * K_ss,
 		num = 10)
 	alpha = 0.36
 	L_tilde = 1/0.9
@@ -383,7 +402,7 @@ def find_eq(beliefs, params):
 		# TODO: current policy gives first guess. Why does it not update better?
 		hh_policy, income_order = egm_dataframe(df, P, K_grid, params["asset_grid"], params, tol = 1e-6)
 		#hh_policy = egm(P, params["asset_grid"], np.asarray(df["income"]), np.asarray(df["rate"]), params["disc_factor"], params["risk_aver"], tol = 1e-6) # 1000 by 40
-
+		ipdb.set_trace()
 		# Debug this
 		
 		hh_panel = hh_history_panel(shock_panel, agg_shocks, df, params["asset_grid"], hh_policy, income_order)
@@ -431,8 +450,8 @@ def egm_dataframe(df, P, K_grid, asset_grid, params, tol = 1e-6):
 
 	policy_guess = df.copy()
 	
-	policy_guess["policy_guess"] = policy_guess.index.get_level_values(3) # Guess must be on grid
-	
+	policy_guess["policy_guess"] = policy_guess.index.get_level_values(3)# * 0.98 # Guess must be on grid
+	df["policy_guess"] = policy_guess.index.get_level_values(3)
 	
 	# pol guess to something we can join to df
 	
@@ -475,86 +494,97 @@ def get_P_df(P):
 def get_df_future(df, P_df, params):
 	''' Gives df with all possible values of mu_cons, with associated transition probabilities form all possible states
 	'''
+	
 	df["mu_cons"] = ((1+df.rate) * df.assets + df.income - df.policy_guess)**(-params["risk_aver"])
+	rate_today = df[["K_agg","boom", "rate"]].drop_duplicates().rename(columns = {"K_agg" : "K_agg_f", "boom" : "boom_f"}).set_index(["K_agg_f", "boom_f"])
+	income_today = df[["K_agg","boom", "employed", "income"]].drop_duplicates().rename(columns = {"K_agg" : "K_agg_f", "boom" : "boom_f", "employed" : "employed_f"}).set_index(["K_agg_f", "boom_f", "employed_f"])
 	
 	if np.any((1+df.rate) * df.assets + df.income - df.policy_guess < 0):
 		print(min((1+df.rate) * df.assets + df.income - df.policy_guess))
 		ipdb.set_trace()
 	if df.mu_cons.isnull().sum() != 0:
 		ipdb.set_trace()
-		# Hypothesis: using wrong interest rate (shift one period here or rthere?)
-		df[(1+df.rate) * df.assets + df.income - df.policy_guess < 0]
-		pass
-
+		
+		tmp = df[(1+df.rate) * df.assets + df.income - df.policy_guess < 0]
+		
 	assert df.mu_cons.isnull().sum() == 0, "There is negative consumption given policy."
-	
+
 	df_fut = df[["K_agg", "boom", "employed", "assets", "mu_cons", "rate"]]
 	df_fut = df_fut.merge(P_df, how = "left", left_on = ["K_agg", "boom", "employed"], right_on = ["K_agg", "boom", "employed"])
 	df_fut["exp_term"] = df_fut["prob"] * df_fut["mu_cons"] * (1 + df_fut["rate"])
 	# Exclude values made impossible by the K law of motion
+	ipdb.set_trace()
+
 	df_fut = df_fut[df_fut["exp_term"]!=0]
 	df_fut = df_fut.set_index(["K_agg_f", "boom_f", "employed_f", "assets"])
+	df_fut = df_fut[["exp_term", "prob"]]
+	
+	df = df_fut.groupby(level = [0,1,2,3]).sum()
+	disc_factor = 0.99
+	risk_aver = 1.5
+
+	# Rate already in expectation
+	df["cons_today"] = (disc_factor * df["exp_term"])**(-1/risk_aver)
+	
+	df = df.join(rate_today)
+	df = df.join(income_today)
+	df = df.reset_index()
+	df["endog_assets"] = (1/(1+df["rate"])) * (df["cons_today"] + df["assets"] - df["income"])
+	df = df.rename(columns = {"K_agg_f" : "K_agg", "boom_f" : "boom", "employed_f" : "employed"})
+
 	assert df_fut.exp_term.isnull().sum() == 0, "There are null values in the expectation term of the df_fut DataFrame."
-	return(df_fut)
-
-def roll_df_back(df):
-	df_lag = df[["K_agg", "boom", "employed", "assets", "policy_guess"]]
-	df_lag = df_lag.rename(columns={"K_agg": "K_agg_f", "boom": "boom_f", "employed" : "employed_f", "assets" : "assets_f", "policy_guess" : "assets"})
-	# Rename policy to asset for join with future values (and similar for others, roll them back one period)
-	df_lag= df_lag.set_index(["K_agg_f", "boom_f", "employed_f", "assets"])
-	return(df_lag)
-
-def get_exp_mu_fut_df(df_fut, df_from):
-	'''
-	df_fut: tells us for each from-income state and possible policy, what is the mu_cons with associated probability. Probability comes entirely from from income-state, from assets are irrelevant. mu_cons depends on policy choice.
-	
-	df_from maps from all states to policy. It is used to find what policies in df_fut that will actually be relevant.
-
-	'''
-	
-	exp_df = df_fut.join(df_from, how = "inner") # Inner join tells us given state today, what is probability weighted value of each possible state in the future
-
-	assert exp_df.exp_term.isnull().sum() == 0, "There are null values in the expectation term"
-	
-	exp_df = exp_df.reset_index().set_index(["K_agg_f", "boom_f", "employed_f", "assets_f"]).groupby(level=[0,1,2,3]).sum().rename(columns = {"exp_term" : "Emucf", "rate" : "rate_prime"})
-
 	assert min(exp_df["prob"]) == 1, "Probabilities sum to less than one"
 	assert max(exp_df["prob"]) == 1, "Probabilities sum to more than one"
-
-
-	# From all possible states, what is the expected marginal utility of consumption tomorrow? (Given current policy)
-	# Roll forward: 
-
-	exp_df = exp_df[["Emucf", "rate_prime"]].reset_index().rename(columns = {"K_agg_f" : "K_agg", "boom_f" : "boom", "employed_f" : "employed", "assets_f" : "assets"}).set_index(["K_agg", "boom", "employed", "assets"])
-	
-	return(exp_df)
+	return(df)
 
 def egm_policy(df, P_df, K_grid, policy_guess, params):
 
 	disc_factor = 0.99
 	risk_aver = 1.5
+	asset_grid_n = params["asset_grid"].shape[0]
 	
-	df = df.join(policy_guess)
 	df = df.reset_index()
+	df["mu_cons"] = ((1+df.rate) * df.assets + df.income - df.policy_guess)**(-params["risk_aver"])
 
-	df_fut = get_df_future(df, P_df, params)
-
-	df_from = roll_df_back(df)
+	rate_today = df[["K_agg","boom", "rate"]].drop_duplicates().rename(columns = {"K_agg" : "K_agg_f", "boom" : "boom_f"}).set_index(["K_agg_f", "boom_f"])
+	income_today = df[["K_agg","boom", "employed", "income"]].drop_duplicates().rename(columns = {"K_agg" : "K_agg_f", "boom" : "boom_f", "employed" : "employed_f"}).set_index(["K_agg_f", "boom_f", "employed_f"])
 	
-	exp_df = get_exp_mu_fut_df(df_fut, df_from) 
+	if np.any((1+df.rate) * df.assets + df.income - df.policy_guess < 0):
+		print(min((1+df.rate) * df.assets + df.income - df.policy_guess))
+		ipdb.set_trace()
+	if df.mu_cons.isnull().sum() != 0:
+		ipdb.set_trace()
+		tmp = df[(1+df.rate) * df.assets + df.income - df.policy_guess < 0]
+		
+	assert df.mu_cons.isnull().sum() == 0, "There is negative consumption given policy."
+
+	df_fut = df[["K_agg", "boom", "employed", "assets", "mu_cons", "rate"]]
+	df_fut = df_fut.merge(P_df, how = "left", left_on = ["K_agg", "boom", "employed"], right_on = ["K_agg", "boom", "employed"])
+	df_fut["exp_term"] = df_fut["prob"] * df_fut["mu_cons"] * (1 + df_fut["rate"])
+	# Exclude values made impossible by the K law of motion
+	
+	df_fut = df_fut[df_fut["exp_term"]!=0]
+	df_fut = df_fut.set_index(["K_agg_f", "boom_f", "employed_f", "assets"])
+	df_fut = df_fut[["exp_term", "prob"]]
+	
+	df = df_fut.groupby(level = [0,1,2,3]).sum()
+	
+	# Rate already in expectation
+	df["cons_today"] = (disc_factor * df["exp_term"])**(-1/risk_aver)
+	
+	df = df.join(rate_today)
+	df = df.join(income_today)
+	df = df.reset_index()
+	df["endog_assets"] = (1/(1+df["rate"])) * (df["cons_today"] + df["assets"] - df["income"])
+	df = df.rename(columns = {"K_agg_f" : "K_agg", "boom_f" : "boom", "employed_f" : "employed"})
+
+	assert df_fut.exp_term.isnull().sum() == 0, "There are null values in the expectation term of the df_fut DataFrame."
+	assert min(df["prob"]) == 1, "Probabilities sum to less than one"
+	assert max(df["prob"]) == 1, "Probabilities sum to more than one"
 	
 	df = df.set_index(["K_agg", "boom", "employed", "assets"])
 
-	df = df.join(exp_df).reset_index()
-	
-	# Note, rate already in expectation
-	df["cons_today"] = (disc_factor * df["Emucf"])**(-1/risk_aver)
-	df["endog_assets"] = (1/(1+df["rate"])) * (df["cons_today"] + df["policy_guess"] - df["income"])
-	# TODO: should nedog assets be rateprime or rate?
-	
-	df = df.set_index(["K_agg", "boom", "employed", "policy_guess"])
-
-	policy_mat = np.empty((1000, 40)) # TODO don't hard code
+	policy_mat = np.empty((asset_grid_n, 40)) # TODO don't hard code
 	exog_grid = params["asset_grid"]
 	ss = 0
 	income_order = np.empty(40)
@@ -571,12 +601,13 @@ def egm_policy(df, P_df, K_grid, policy_guess, params):
 		
 		policy_exog_grid = np.interp(x = exog_grid, xp = endog_x, fp = outcome)
 		
-		index_val = np.searchsorted(exog_grid, policy_exog_grid, side = "left")
-		
-		policy_mat[:,ss] = exog_grid[index_val] # round to grid for compatibility with later joins
+		#index_val = np.searchsorted(exog_grid, policy_exog_grid, side = "left")
+		# TODO: make work without this. Might kill idnividuals by rounding error!
+		# Maybe pass on grid onto next iteration to still be able to do the join
+		policy_mat[:,ss] = policy_exog_grid 
+		#policy_mat[:,ss] = exog_grid[index_val] # round to grid for compatibility with later joins
 		ss += 1
 		
-	
 	new_policy_guess = pd.DataFrame(policy_mat, columns = ix_list)
 	new_policy_guess["assets"] = exog_grid
 	new_policy_guess = pd.melt(new_policy_guess, id_vars = "assets")
@@ -593,9 +624,8 @@ start_belief = np.array([[0,1], [0,1]])
 
 belief_star = find_eq(start_belief, params)
 
-
 # TODO LIST
-
+# Don't kill people by rounding
 
 # Steady state capital
 
