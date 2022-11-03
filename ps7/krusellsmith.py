@@ -11,7 +11,7 @@ from scipy.interpolate import interpn
 import pandas as pd
 import itertools
 
-K_ss = 47
+K_ss =32 # Aprox from Solow model assuming s = 0.1, r-delta = 0.01.
 params = {
 	"asset_grid": np.logspace(
 	start = 0,
@@ -232,7 +232,7 @@ def hh_history_loop(N_hh, K_agg_grid, panel, shock_panel, agg_shocks, df, asset_
 		savings_panel[t,:] = savings
 		income_panel[t,:] = income
 	return(savings_panel, income_panel)
-# TODO: below
+
 @jit(nopython=True, parallel = False)
 def simulate_shocks(N_hh, T, P):
 	p_change = 0.875
@@ -312,24 +312,10 @@ def update_beliefs(K, ix):
 	coef_new = np.array([intercept, slope])
 	return(coef_new, r**2)
 
-def find_eq(beliefs, params):
+def find_eq(beliefs, shock_panel, agg_shocks, df, params):
 	
 	shock_panel, agg_shocks = simulate_shocks(params["Nhh"], params["T"], params["P"])
-	
-	import plotly.express as px
-	
-	df = pd.DataFrame(np.mean(shock_panel, axis = 1), columns = ["mean"])
-	df["year"] = df.index
-	df = df.set_index("year")
-	df_z = pd.DataFrame(agg_shocks, columns = ["boom"])
-	df_z["year"] = df_z.index
-	df_z = df_z.set_index("year")
-	df = df.join(df_z)
-
-	df = df.reset_index()
-	fig = px.line(df, x="year", y="mean", title='..')
-#	fig.show()
-	
+		
 	df_inc = get_income_states(params["K_grid"], params["L_tilde"], params["alpha"])
 	df_rates = get_rates(params["K_grid"], params["L_tilde"], params["alpha"], params)
 
@@ -344,14 +330,7 @@ def find_eq(beliefs, params):
 		
 
 		hh_panel = hh_history_panel(shock_panel, agg_shocks, df, params["asset_grid"], hh_policy, income_order, params["L_tilde"], df_pol)
-		###
-		#df = hh_panel.reset_index()
-		#df = df[df["year"]==1000]
-		#fig = px.histogram(df, x="savings")
-		#fig.show()
 
-
-		###
 		K_implied, boom_ix, bust_ix = get_K_series(hh_panel, agg_shocks)
 		
 		boom_coef_new, r2 = update_beliefs(K_implied["savings"], boom_ix)
@@ -496,11 +475,23 @@ def egm_policy(df, P_df, K_grid, policy_guess, params):
 	return(policy_mat, income_order, new_policy_guess, df_pol)
 
 
+shock_panel, agg_shocks = simulate_shocks(params["Nhh"], params["T"], params["P"])
+		
+df_inc = get_income_states(params["K_grid"], params["L_tilde"], params["alpha"])
+df_rates = get_rates(params["K_grid"], params["L_tilde"], params["alpha"], params)
+df = df_inc.merge(df_rates, 'left', left_on = ("K_agg", "boom"), right_on = ('K_agg', 'boom'))
+
 start_belief = np.array([[0.095, 0.962], [0.085, 0.965]])
 #start_belief = np.array([[0.2,0.9], [0.2,0.9]])
 
-belief_star = find_eq(start_belief, params)
+belief_star = find_eq(beliefs, shock_panel, agg_shocks, df, params)
 
+P = get_transition_matrix(params["P"], params["K_grid"], beliefs)
+hh_policy, income_order, df_pol = egm_dataframe(df, P, params["K_grid"], params["asset_grid"], params, tol = 1e-6)
+hh_panel = hh_history_panel(shock_panel, agg_shocks, df, params["asset_grid"], hh_policy, income_order, params["L_tilde"], df_pol)
+K_implied, boom_ix, bust_ix = get_K_series(hh_panel, agg_shocks)
+boom_coef_new, r2 = update_beliefs(K_implied["savings"], boom_ix)
+bust_coef_new, r2 = update_beliefs(K_implied["savings"], bust_ix)
 # TODO LIST
 # Steady state capital
 # beliefs do not correspond with outcome
