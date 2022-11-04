@@ -10,6 +10,7 @@ from scipy import interpolate, stats
 from scipy.interpolate import interpn
 import pandas as pd
 import itertools
+import plotly.express as px
 
 K_ss =32 # Aprox from Solow model assuming s = 0.1, r-delta = 0.01.
 params = {
@@ -474,7 +475,6 @@ def egm_policy(df, P_df, K_grid, policy_guess, params):
 
 	return(policy_mat, income_order, new_policy_guess, df_pol)
 
-
 shock_panel, agg_shocks = simulate_shocks(params["Nhh"], params["T"], params["P"])
 		
 df_inc = get_income_states(params["K_grid"], params["L_tilde"], params["alpha"])
@@ -482,19 +482,31 @@ df_rates = get_rates(params["K_grid"], params["L_tilde"], params["alpha"], param
 df = df_inc.merge(df_rates, 'left', left_on = ("K_agg", "boom"), right_on = ('K_agg', 'boom'))
 
 start_belief = np.array([[0.095, 0.962], [0.085, 0.965]])
-#start_belief = np.array([[0.2,0.9], [0.2,0.9]])
 
-belief_star = find_eq(beliefs, shock_panel, agg_shocks, df, params)
+belief_star = find_eq(start_belief, shock_panel, agg_shocks, df, params)
 
-P = get_transition_matrix(params["P"], params["K_grid"], beliefs)
+P = get_transition_matrix(params["P"], params["K_grid"], belief_star)
 hh_policy, income_order, df_pol = egm_dataframe(df, P, params["K_grid"], params["asset_grid"], params, tol = 1e-6)
 hh_panel = hh_history_panel(shock_panel, agg_shocks, df, params["asset_grid"], hh_policy, income_order, params["L_tilde"], df_pol)
 K_implied, boom_ix, bust_ix = get_K_series(hh_panel, agg_shocks)
-boom_coef_new, r2 = update_beliefs(K_implied["savings"], boom_ix)
-bust_coef_new, r2 = update_beliefs(K_implied["savings"], bust_ix)
+boom_coef_new, r2_boom = update_beliefs(K_implied["savings"], boom_ix)
+bust_coef_new, r2_bust = update_beliefs(K_implied["savings"], bust_ix)
+
+np.savetxt(f'figures/boom_coef.csv', boom_coef_new, delimiter=',')
+np.savetxt(f'figures/bust_coef.csv', bust_coef_new, delimiter=',')
+np.savetxt(f'figures/r2.csv', np.array([r2_boom, r2_bust]), delimiter=',')
+
+df = hh_panel.reset_index()
+df_a = df.groupby("year").mean().reset_index()
+df_a = df_a[df_a["year"]>1000]
+fig = px.line(df_a, x="year", y="savings", title='mean savings')
+fig.write_image(f'figures/agg_capital.png')
+
+
+
+
 # TODO LIST
-# Steady state capital
-# beliefs do not correspond with outcome
+# savings do not fall inside K grid
 
 
 
