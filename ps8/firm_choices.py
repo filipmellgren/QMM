@@ -40,20 +40,21 @@ def optimal_sub_period_prod(EV0_guess, price_guess, inventory_grid, params):
 	for ix in range(inventory_grid.shape[0]):
 		inv = inventory_grid[ix]
 	
-		res = minimize_scalar(V1_fun, args=(price_guess, inv, inventory_grid, EV0_guess, params), method='bounded', bounds=(0, inv))
+		res = minimize_scalar(V1_fun, args=(price_guess, inv, inventory_grid, EV0_guess, params), method='bounded', bounds=(0, inv), tol = 1e-4)
 		m_star.append(res.x)
 		V1_value.append(-res.fun)
 	
 	m_star = np.asarray(m_star)
 	V1_value = np.asarray(V1_value)
 
-	n_s = labor_choice_final(m_star, price_guess, params)
+	n_s = labor_choice_final(inventory_grid, price_guess, params)
 
 	V_corner = price_guess * (final_good_production(inventory_grid, n_s, params) - omega * n_s) + beta * EV0_guess[0]
 	V_mat = np.array([V1_value, V_corner])
 	corner_sol = np.argmax(V_mat, axis = 0)
 
 	sub_period_production = m_star * (1 - corner_sol) + inventory_grid * corner_sol
+	
 	return(sub_period_production)
 
 def V1_fun(m, price_guess, inventory_level, inventory_grid, EV0_guess, params):
@@ -73,7 +74,7 @@ def V1_fun(m, price_guess, inventory_level, inventory_grid, EV0_guess, params):
 	return(-V1) # Note for minimzer, switch sign
 
 def find_nearest(point, grid):
-	# TODO: can we do this for vectors as well?
+	
 	ix = np.argmin(np.abs(grid - point))
 	point_on_grid = grid[ix]
 	return(point_on_grid, ix)
@@ -94,7 +95,7 @@ def labor_choice_final(m, price_guess, params):
 	theta_n = params["theta_n"]
 	theta_m = params["theta_m"]
 	eta = params["eta"]
-	return((theta_n * price_guess * m**theta_m) / eta)**(1/(1-theta_n))
+	return(((theta_n * price_guess * m**theta_m) / eta)**(1/(1-theta_n)))
 
 
 def final_good_production(m,n, params):
