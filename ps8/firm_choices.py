@@ -2,16 +2,16 @@
 # The innermost loop
 import numpy as np
 from scipy.optimize import minimize_scalar
-import ipdb
 
-def firm_choices(inventory_grid, price_guess, V1_guess, EV0_guess, params):
+def firm_choices(inventory_grid, price_guess, EV0_guess, params):
 	''' Outputs vectors for each inventory on grid.
 	Innermost loop.
 	'''
-	inventory_star, adjust_value = optimal_inventory(inventory_grid, V1_guess, price_guess, params) # s_star
+	sub_period_prod_star, V1_guess = optimal_sub_period_prod(EV0_guess, price_guess, inventory_grid, params) # m_star
 
-	sub_period_prod_star = optimal_sub_period_prod(EV0_guess, price_guess, inventory_grid, params) # m_star
-	return(inventory_star, adjust_value, sub_period_prod_star)
+	inventory_star, adjust_value = optimal_inventory(inventory_grid, V1_guess, price_guess, params) # s_star
+	
+	return(inventory_star, adjust_value, sub_period_prod_star, V1_guess)
 
 def optimal_inventory(inventory_grid, V1_guess, price_guess, params):
 	''' Find s_star 
@@ -22,6 +22,7 @@ def optimal_inventory(inventory_grid, V1_guess, price_guess, params):
 	q = intermediate_good_price(price_guess, params)
 	inventory_star_ix = np.argmax(-price_guess * q * inventory_grid + V1_guess)
 	inventory_star = inventory_grid[inventory_star_ix]
+
 	adjust_value = -price_guess * q * inventory_star + V1_guess[inventory_star_ix]
 	return(inventory_star, adjust_value)
 
@@ -42,7 +43,7 @@ def optimal_sub_period_prod(EV0_guess, price_guess, inventory_grid, params):
 	
 		res = minimize_scalar(V1_fun, args=(price_guess, inv, inventory_grid, EV0_guess, params), method='bounded', bounds=(0, inv), tol = 1e-4)
 		m_star.append(res.x)
-		V1_value.append(-res.fun)
+		V1_value.append(-res.fun) # Because minimizing above, there is a negative sign in the function
 	
 	m_star = np.asarray(m_star)
 	V1_value = np.asarray(V1_value)
@@ -54,8 +55,9 @@ def optimal_sub_period_prod(EV0_guess, price_guess, inventory_grid, params):
 	corner_sol = np.argmax(V_mat, axis = 0)
 
 	sub_period_production = m_star * (1 - corner_sol) + inventory_grid * corner_sol
+	V1 = V1_value * (1 - corner_sol) + V_corner * corner_sol
 	
-	return(sub_period_production)
+	return(sub_period_production, V1)
 
 def V1_fun(m, price_guess, inventory_level, inventory_grid, EV0_guess, params):
 	''' Eq 9

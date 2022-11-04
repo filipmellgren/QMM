@@ -1,7 +1,10 @@
 # Firms and inventories
 # By filip.mellgren@su.se
 import numpy as np
-from firm_choices import firm_choices
+from firm_choices import firm_choices, intermediate_good_price
+from firm_vf import iterate_firm_vf
+import ipdb
+from scipy.interpolate import UnivariateSpline
 
 params = {
 	"beta" : 0.984,
@@ -12,7 +15,9 @@ params = {
 	"delta" : 0.0173,
 	"eta_bar" : 0.2198,
 	"zbar" : 1.0032,
-	"sigma" : 0.012
+	"sigma" : 0.012,
+	"xi_min" : 0,
+	"xi_max" : 0.2198
 	}
 
 psi0 = 10
@@ -24,19 +29,45 @@ psi0_grid = np.linspace(
 inventory_grid = np.append(np.array([0]), psi0**psi0_grid)
 
 p_guess = 3.25
+price_guess = 3.25
 
 EV0_guess = p_guess**(1/(1-params["theta_m"])) * (1 - params["theta_n"]) * (params["theta_n"]/params["eta"])**(params["theta_n"]/(1-params["theta_n"])) * inventory_grid**(params["theta_m"]/(1-params["theta_n"]))
 
-V1_guess = inventory_grid
+#### START
 
-firm_choices(inventory_grid, p_guess, V1_guess, EV0_guess, params)
-
-
+EV0, V1, inventory_star, m_star, adj_share = iterate_firm_vf(price_guess, inventory_grid, EV0_guess, 1e-6, params)
 
 
 
 
 
 
-def firm_value_function():
-return(0)
+
+EV0_spline = UnivariateSpline(inventory_grid, EV0) 
+V1_spline = UnivariateSpline(inventory_grid, V1)
+
+
+
+def find_inventory_seq(s_star, adj_share):
+	eps0 = 0.01
+	EV0, V1, inventory_star, m_star, adj_share = iterate_firm_vf(price_guess, inventory_grid, EV0_guess, 1e-6, params)
+	EV0_spline = UnivariateSpline(inventory_grid, EV0) 
+	V1_spline = UnivariateSpline(inventory_grid, V1)
+	# TODO: should we loop here and is J_max time
+	for time in range(J_max):
+		s_new = inventory_grid - m_star
+		s_new = s_new[s_new < eps0]
+
+		# TODO: check if all firms have updated
+		all_firms_updated = False
+		if all_firms_updated:
+			continue
+			pass
+			pass
+		pass
+
+	pass
+
+
+
+
