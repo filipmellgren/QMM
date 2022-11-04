@@ -46,5 +46,5 @@ def iterate_firm_vf(price_guess, inventory_grid, EV0_guess, tol, params):
 		EV0_guess = np.copy(EV0_upd)
 
 		diff = np.maximum(V1_diff, EV0_diff)
-	return(EV0_guess, V1_guess, inventory_star, m_star, adj_share)
+	return(EV0_guess, V1_guess, inventory_star, m_star, adj_share, adj_val)
 

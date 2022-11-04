@@ -35,16 +35,23 @@ EV0_guess = p_guess**(1/(1-params["theta_m"])) * (1 - params["theta_n"]) * (para
 
 #### START
 
-EV0, V1, inventory_star, m_star, adj_share = iterate_firm_vf(price_guess, inventory_grid, EV0_guess, 1e-6, params)
+EV0, V1, inventory_star, m_star, adj_share, adj_val = iterate_firm_vf(price_guess, inventory_grid, EV0_guess, 1e-6, params)
+
+q = intermediate_good_price(price_guess, params)
+omega = params["eta"]/price_guess
+xi_min = params["xi_min"]
+xi_max = params["xi_max"]
+
+EV0_spline = UnivariateSpline(inventory_grid, EV0, k =3) 
+V1_spline = UnivariateSpline(inventory_grid, V1, k=3)
+
+xi_tilde_star = -(V1_spline(inventory_star) - price_guess * q * inventory_star - adj_val)/(price_guess * omega)
+xi_T_star = np.minimum(np.maximum(xi_min, xi_tilde_star), xi_max)
 
 
 
 
 
-
-
-EV0_spline = UnivariateSpline(inventory_grid, EV0) 
-V1_spline = UnivariateSpline(inventory_grid, V1)
 
 
 
