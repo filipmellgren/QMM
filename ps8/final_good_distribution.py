@@ -25,6 +25,9 @@ def find_ergodic_distribution(price_guess, params):
 
 	eigen_val, ergodic_distr = sp.sparse.linalg.eigs(P.T, k = 1, sigma = 1)
 	ergodic_distr = np.abs(ergodic_distr / np.sum(ergodic_distr))
+	ergodic_distr = np.squeeze(ergodic_distr)
 
-	m_vec = m_vec[0:ergodic_distr.shape[0]]
+	m_vec = np.array(m_vec[0:ergodic_distr.shape[0]])
+	s_vec = np.array(s_vec[0:ergodic_distr.shape[0]])
+
 	return(ergodic_distr, m_vec, s_grid, s_vec)

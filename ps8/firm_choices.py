@@ -41,7 +41,7 @@ def optimal_sub_period_prod(EV0_guess, price_guess, inventory_grid, params):
 	for ix in range(inventory_grid.shape[0]):
 		inv = inventory_grid[ix]
 	
-		res = minimize_scalar(V1_fun, args=(price_guess, inv, inventory_grid, EV0_guess, params), method='bounded', bounds=(0, inv), tol = 1e-4)
+		res = minimize_scalar(V1_fun, args=(price_guess, inv, inventory_grid, EV0_guess, params), method='bounded', bounds=(0, inv))
 		m_star.append(res.x)
 		V1_value.append(-res.fun) # Because minimizing above, there is a negative sign in the function
 	
@@ -102,6 +102,7 @@ def labor_choice_final(m, price_guess, params):
 
 def final_good_production(m,n, params):
 	''' G function
+	Also used in market clearing
 	'''
 	theta_n = params["theta_n"]
 	theta_m = params["theta_m"]
