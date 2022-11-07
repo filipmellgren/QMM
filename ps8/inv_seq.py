@@ -1,42 +1,4 @@
-# Firms and inventories
-# By filip.mellgren@su.se
-import numpy as np
-from numpy import linalg as LA
-from firm_choices import firm_choices, intermediate_good_price
-from firm_vf import iterate_firm_vf
-import ipdb
-from scipy.interpolate import UnivariateSpline
-
-params = {
-	"beta" : 0.984,
-	"eta" : 2.128,
-	"alpha" : 0.3739,
-	"theta_m" : 0.4991,
-	"theta_n" : 0.3275,
-	"delta" : 0.0173,
-	"eta_bar" : 0.2198,
-	"zbar" : 1.0032,
-	"sigma" : 0.012,
-	"xi_min" : 0,
-	"xi_max" : 0.2198
-	}
-
-psi0 = 10
-psi1 = 25
-psi0_grid = np.linspace(
-	start = np.log(0.1042/psi1)/np.log(psi0),
-	stop =  np.log(2.5) / np.log(psi0),
-	num = 24)
-inventory_grid = np.append(np.array([0]), psi0**psi0_grid)
-
-p_guess = 3.25
-price_guess = 3.25
-
-EV0_guess = p_guess**(1/(1-params["theta_m"])) * (1 - params["theta_n"]) * (params["theta_n"]/params["eta"])**(params["theta_n"]/(1-params["theta_n"])) * inventory_grid**(params["theta_m"]/(1-params["theta_n"]))
-
-#### START
-
-
+# Inventory sequences
 def calc_adj_share(s_, price_guess, q, adj_val, omega, xi_min, xi_max):
 	V1_s = V1_spline(s_)
 	xi_tilde = -(V1_s - price_guess * q * s_ - adj_val)/(price_guess * omega)
@@ -75,9 +37,3 @@ def find_inventory_seq(s_star):
 		all_firms_updated = np.sum(adj_share_seq) >= 1
 
 	return(inv_seq, m_seq, adj_share_seq)
-
-len(m_seq)
-LA.eig(adj_share_seq)
-
-
-
