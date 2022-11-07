@@ -45,4 +45,5 @@ def find_inventory_seq(price_guess, params):
 		s_ = s_ - m_
 		all_firms_updated = np.sum(adj_share_seq) >= 1
 
+	np.savetxt(f"figures/inv_seq_{str(price_guess)[-2:]}.csv", inv_seq)
 	return(inv_seq, m_seq, adj_share_seq)

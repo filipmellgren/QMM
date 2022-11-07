@@ -46,5 +46,7 @@ def iterate_firm_vf(price_guess, inventory_grid, EV0_guess, tol, params):
 		EV0_guess = np.copy(EV0_upd)
 
 		diff = np.maximum(V1_diff, EV0_diff)
+	np.savetxt(f"figures/V1_{str(price_guess)[-2:]}.csv", V1_guess)
+	np.savetxt(f"figures/s_star_{str(price_guess)[-2:]}.csv", np.expand_dims(inventory_star, axis = 0))
 	return(EV0_guess, V1_guess, inventory_star, m_star, adj_share, adj_val)
 

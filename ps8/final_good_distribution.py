@@ -29,5 +29,6 @@ def find_ergodic_distribution(price_guess, params):
 
 	m_vec = np.array(m_vec[0:ergodic_distr.shape[0]])
 	s_vec = np.array(s_vec[0:ergodic_distr.shape[0]])
+	np.savetxt(f"figures/ergodic_distr_{str(price_guess)[-2:]}.csv", ergodic_distr)
 
 	return(ergodic_distr, m_vec, s_grid, s_vec)
