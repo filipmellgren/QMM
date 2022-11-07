@@ -1,0 +1,30 @@
+from inv_seq import find_inventory_seq
+import numpy as np
+from scipy.interpolate import griddata
+import scipy as sp
+
+def find_ergodic_distribution(price_guess, params):
+	''' Find ergodic distribution using eigenvector approach
+
+	'''
+	s_vec, m_vec, adj_vec = find_inventory_seq(price_guess, params)	
+	s_grid = griddata(params["inventory_grid"], params["inventory_grid"], xi = s_vec, method = "nearest")
+	s_grid = -np.sort(-(np.unique(s_grid)))
+	s_grid = np.append(s_grid, s_vec[-1])
+	adj_p = adj_vec[0:s_grid.shape[0]-1]
+	sfrom, sto = np.meshgrid(s_grid, s_grid[1:], sparse = True, indexing = "ij")
+	trans_mat_indic = (sto == sfrom)
+	trans_mat_indic = trans_mat_indic.T
+	trans_mat_indic = trans_mat_indic[:,0:-1]
+
+	trans_p = (1 - np.expand_dims(np.asarray(adj_p), axis = 1))
+
+	P = trans_mat_indic * trans_p
+	P[:,0] = adj_p
+	assert np.all(np.isclose(np.sum(P, axis = 1), 1))
+
+	eigen_val, ergodic_distr = sp.sparse.linalg.eigs(P.T, k = 1, sigma = 1)
+	ergodic_distr = np.abs(ergodic_distr / np.sum(ergodic_distr))
+
+	m_vec = m_vec[0:ergodic_distr.shape[0]]
+	return(ergodic_distr, m_vec, s_grid, s_vec)

@@ -3,9 +3,13 @@
 import numpy as np
 from numpy import linalg as LA
 from firm_choices import firm_choices, intermediate_good_price
-from firm_vf import iterate_firm_vf
+from final_good_distribution import find_ergodic_distribution
+
+from scipy import optimize
+import scipy as sp
+from inv_seq import find_inventory_seq
 import ipdb
-from scipy.interpolate import UnivariateSpline
+
 
 params = {
 	"beta" : 0.984,
@@ -28,53 +32,43 @@ psi0_grid = np.linspace(
 	stop =  np.log(2.5) / np.log(psi0),
 	num = 24)
 inventory_grid = np.append(np.array([0]), psi0**psi0_grid)
+params["inventory_grid"] = inventory_grid
 
 p_guess = 3.25
 price_guess = 3.25
 
-EV0_guess = p_guess**(1/(1-params["theta_m"])) * (1 - params["theta_n"]) * (params["theta_n"]/params["eta"])**(params["theta_n"]/(1-params["theta_n"])) * inventory_grid**(params["theta_m"]/(1-params["theta_n"]))
+distr, m_vec = find_ergodic_distribution(price_guess, params)
+
+
+def market_clearing(price_guess, distr, params):
+	intermediate_good_demand = m_vec @ distr
+	capital = 
+	labor
+	# TODO: we should sum up to J_max, but I lump them together already. Is that ok?
+	consumption = np.sum(G - sigma * (s_vec - m_vec))
+
+
+	marginal_utility = 1/consumption
+	price_preferences = marginal_utility
+	diff = price_guess - price_preferences
+
+	return(diff)
+
+
+
+sp.optimize.bisect()
+
+
+np.around(P,4)
+
+
+
+
+
 
 #### START
 
 
-def calc_adj_share(s_, price_guess, q, adj_val, omega, xi_min, xi_max):
-	V1_s = V1_spline(s_)
-	xi_tilde = -(V1_s - price_guess * q * s_ - adj_val)/(price_guess * omega)
-	xi_T = np.minimum(np.maximum(xi_min, xi_tilde), xi_max)
-	adj_share = (xi_T**2)/(2 * xi_max)
-	return(adj_share)
-
-def find_inventory_seq(s_star):
-	q = intermediate_good_price(price_guess, params)
-	omega = params["eta"]/price_guess
-	xi_min = params["xi_min"]
-	xi_max = params["xi_max"]
-
-	EV0, V1, inventory_star, m_star, adj_share, adj_val = iterate_firm_vf(price_guess, inventory_grid, EV0_guess, 1e-6, params)
-	#EV0_spline = UnivariateSpline(inventory_grid, EV0) 
-	V1_spline = UnivariateSpline(inventory_grid, V1)
-	
-	s_ = inventory_star
-	inv_seq = []
-	adj_share_seq = []
-	m_seq = []
-	eps0 = 1e-8
-	all_firms_updated = False
-	while not all_firms_updated:
-		inv_seq.append(s_)
-		adj_share_seq.append(calc_adj_share(s_, price_guess, q, adj_val, omega, xi_min, xi_max))
-		if s_ < eps0:
-			m_seq.append(s_)
-			s_ = 0
-			all_firms_updated = np.sum(adj_share_seq) >= 1
-			continue
-
-		m_ = np.interp(s_, inventory_grid, m_star) # TODO: update to smoother spline 
-		m_seq.append(m_)
-		s_ = s_ - m_
-		all_firms_updated = np.sum(adj_share_seq) >= 1
-
-	return(inv_seq, m_seq, adj_share_seq)
 
 len(m_seq)
 LA.eig(adj_share_seq)
