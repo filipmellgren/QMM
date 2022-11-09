@@ -26,7 +26,7 @@ def optimal_inventory(inventory_grid, V1_guess, price_guess, params, V1_spline):
 	
 	inventory_star_sol = minimize_scalar(lambda x : -(V1_spline(x) - price_guess * q * x), method = 'bounded', bounds = (inventory_grid[0], inventory_grid[-1]))
 	inventory_star = inventory_star_sol.x
-	print(inventory_star)
+	
 	
 	adjust_value = -price_guess * q * inventory_star + V1_spline(inventory_star)
 	return(inventory_star, adjust_value)

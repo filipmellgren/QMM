@@ -1,4 +1,4 @@
-from final_good_distribution import find_ergodic_distribution
+from final_good_distribution import find_ergodic_distribution, find_ergodic_distribution2
 import numpy as np
 from firm_choices import final_good_production
 import ipdb
@@ -15,7 +15,7 @@ def market_clearing(price_guess, params):
 	wage = eta / price_guess
 	params["wage"] = wage
 
-	distr, m_vec, s_grid, s_vec = find_ergodic_distribution(price_guess, params)
+	distr, m_vec, s_grid, s_vec = find_ergodic_distribution2(price_guess, params)
 
 	intermediate_good_demand = m_vec @ distr
 	X = intermediate_good_demand
