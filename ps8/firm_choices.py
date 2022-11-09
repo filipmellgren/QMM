@@ -2,29 +2,33 @@
 # The innermost loop
 import numpy as np
 from scipy.optimize import minimize_scalar
+from scipy.interpolate import UnivariateSpline
 
 def firm_choices(inventory_grid, price_guess, EV0_guess, params):
 	''' Outputs vectors for each inventory on grid.
 	Innermost loop.
+	Called by: firm_vf.iterate_firm_vf()
 	'''
 	sub_period_prod_star, V1_guess = optimal_sub_period_prod(EV0_guess, price_guess, inventory_grid, params) # m_star
-
-	inventory_star, adjust_value = optimal_inventory(inventory_grid, V1_guess, price_guess, params) # s_star
+	V1_spline = UnivariateSpline(inventory_grid, V1_guess)
+	inventory_star, adjust_value = optimal_inventory(inventory_grid, V1_guess, price_guess, params, V1_spline) # s_star
 	
 	return(inventory_star, adjust_value, sub_period_prod_star, V1_guess)
 
-def optimal_inventory(inventory_grid, V1_guess, price_guess, params):
+def optimal_inventory(inventory_grid, V1_guess, price_guess, params, V1_spline):
 	''' Find s_star 
 	See 1.4.1 page 3 of problem set
 	inventory_grid should be a vector
 	V1_guess should also be a vector correpsonding to one value per inventory level
-	TODO: inventory star is on grid, should we allow it to go off-grid?
+	
 	'''
-	q = params["q"] #intermediate_good_price(price_guess, params)
-	inventory_star_ix = np.argmax(-price_guess * q * inventory_grid + V1_guess)
-	inventory_star = inventory_grid[inventory_star_ix]
-
-	adjust_value = -price_guess * q * inventory_star + V1_guess[inventory_star_ix]
+	q = params["q"]
+	
+	inventory_star_sol = minimize_scalar(lambda x : -(V1_spline(x) - price_guess * q * x), method = 'bounded', bounds = (inventory_grid[0], inventory_grid[-1]))
+	inventory_star = inventory_star_sol.x
+	print(inventory_star)
+	
+	adjust_value = -price_guess * q * inventory_star + V1_spline(inventory_star)
 	return(inventory_star, adjust_value)
 
 def optimal_sub_period_prod(EV0_guess, price_guess, inventory_grid, params):
@@ -73,13 +77,7 @@ def V1_fun(m, price_guess, inventory_level, inventory_grid, EV0_guess, params):
 	inv_next = inventory_level - m
 	V1 = price_guess * (final_good_production(m ,n, params) - sigma * (inventory_level - m) - omega * n) + beta * EV0_guess(inv_next)
 	return(-V1) # Note for minimzer, switch sign
-'''
-def find_nearest(point, grid):
-	
-	ix = np.argmin(np.abs(grid - point))
-	point_on_grid = grid[ix]
-	return(point_on_grid, ix)
-'''
+
 def intermediate_good_price(price_guess, params):
 	''' Return the price of the intermediate good, q.
 	See page 3 equation 3 of problem set.

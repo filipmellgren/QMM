@@ -46,6 +46,9 @@ def find_inventory_seq(price_guess, params):
 		m_seq.append(m_)
 		s_ = s_ - m_
 		all_firms_updated = np.sum(adj_share_seq) >= 1
+		if len(m_seq) > 100:
+			print("inventory sequence too long")
+			break
 
 	np.savetxt(f"figures/inv_seq_{str(price_guess)[-2:]}.csv", inv_seq)
 	return(inv_seq, m_seq, adj_share_seq)

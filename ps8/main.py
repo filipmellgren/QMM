@@ -34,6 +34,9 @@ price_guess = 3.25
 
 market_clearing(price_guess, params)
 
+
+
+
 price_guess = 3.291
 
 market_clearing(price_guess, params)

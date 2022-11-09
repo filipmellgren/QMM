@@ -30,8 +30,10 @@ def firm_vf_upd(V1, price_guess, adj_val, q, inventory_grid, omega, params):
 
 def iterate_firm_vf(price_guess, inventory_grid, EV0_guess, tol, params):
 	''' Iterate on firm's value function to find true value
+	Called by inv_seq.find_inventory_seq
+	
 	'''
-	q = params["q"] # intermediate_good_price(price_guess, params)
+	q = params["q"] 
 	omega = params["wage"]
 	diff = 100.0
 	

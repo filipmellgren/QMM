@@ -32,7 +32,7 @@ def market_clearing(price_guess, params):
 	G = final_good_production(m_vec, n_vec, params)
 
 	consumption = np.sum((G - sigma * (s_vec - m_vec))*distr) - delta * K # Too low -> Check s_j and functions of s_j
-
+	print("consumption")
 	marginal_utility = 1/consumption # Too high
 	price_preferences = marginal_utility # Too high
 	diff = price_guess - price_preferences # Too low
