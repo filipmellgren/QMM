@@ -30,11 +30,11 @@ psi0_grid = np.linspace(
 inventory_grid = np.append(np.array([0]), psi0**psi0_grid)
 params["inventory_grid"] = inventory_grid
 
-price_guess = 3.299
+price_guess = 3.25
 
 market_clearing(price_guess, params)
 
-price_guess = 3.201
+price_guess = 3.291
 
 market_clearing(price_guess, params)
 

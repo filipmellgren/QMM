@@ -13,6 +13,7 @@ def market_clearing(price_guess, params):
 	alpha = params["alpha"]
 	delta = params["delta"]
 	wage = eta / price_guess
+	params["wage"] = wage
 
 	distr, m_vec, s_grid, s_vec = find_ergodic_distribution(price_guess, params)
 
@@ -20,7 +21,7 @@ def market_clearing(price_guess, params):
 	X = intermediate_good_demand
 
 	# From w = MPL, get (K/L)**alpha ratio
-	ipdb.set_trace()
+	
 	KLalpha_ratio = beta * alpha /(1-alpha) * wage /(1- beta * (1-delta))
 	KLalpha_ratio = KLalpha_ratio ** (1/alpha)
 	# Solve for L
@@ -30,10 +31,10 @@ def market_clearing(price_guess, params):
 	n_vec = (theta_n/eta * price_guess * m_vec**theta_m)**(1/(1-theta_n))
 	G = final_good_production(m_vec, n_vec, params)
 
-	consumption = np.sum((G - sigma * (s_vec - m_vec))*distr) - delta * K
+	consumption = np.sum((G - sigma * (s_vec - m_vec))*distr) - delta * K # Too low -> Check s_j and functions of s_j
 
-	marginal_utility = 1/consumption
-	price_preferences = marginal_utility
-	diff = price_guess - price_preferences
+	marginal_utility = 1/consumption # Too high
+	price_preferences = marginal_utility # Too high
+	diff = price_guess - price_preferences # Too low
 	
 	return(diff)

@@ -14,7 +14,8 @@ def calc_adj_share(s_, V1_spline, price_guess, q, adj_val, omega, xi_min, xi_max
 
 def find_inventory_seq(price_guess, params):
 	q = intermediate_good_price(price_guess, params)
-	omega = params["eta"]/price_guess
+	params["q"] = q
+	omega = params["wage"]
 	xi_min = params["xi_min"]
 	xi_max = params["xi_max"]
 	inventory_grid = params["inventory_grid"]

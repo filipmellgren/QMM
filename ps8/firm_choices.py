@@ -19,7 +19,7 @@ def optimal_inventory(inventory_grid, V1_guess, price_guess, params):
 	inventory_grid should be a vector
 	V1_guess should also be a vector correpsonding to one value per inventory level
 	'''
-	q = intermediate_good_price(price_guess, params)
+	q = params["q"] #intermediate_good_price(price_guess, params)
 	inventory_star_ix = np.argmax(-price_guess * q * inventory_grid + V1_guess)
 	inventory_star = inventory_grid[inventory_star_ix]
 
@@ -33,7 +33,7 @@ def optimal_sub_period_prod(EV0_guess, price_guess, inventory_grid, params):
 	'''
 	eta = params["eta"]
 	beta = params["beta"]
-	omega = eta / price_guess
+	omega = params["wage"]
 	
 	m_star = []
 	V1_value = []
@@ -66,7 +66,7 @@ def V1_fun(m, price_guess, inventory_level, inventory_grid, EV0_guess, params):
 	sigma = params["sigma"]
 	eta = params["eta"]
 	beta = params["beta"]
-	omega = eta / price_guess
+	omega = params["wage"]
 	
 	n = labor_choice_final(m, price_guess, params)
 	
