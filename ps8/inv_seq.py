@@ -4,6 +4,7 @@ from firm_choices import intermediate_good_price
 
 import numpy as np
 from scipy.interpolate import UnivariateSpline
+import ipdb
 
 def calc_adj_share(s_, V1_spline, price_guess, q, adj_val, omega, xi_min, xi_max):
 	V1_s = V1_spline(s_)
@@ -23,7 +24,7 @@ def find_inventory_seq(price_guess, params):
 	EV0_guess = price_guess**(1/(1-params["theta_m"])) * (1 - params["theta_n"]) * (params["theta_n"]/params["eta"])**(params["theta_n"]/(1-params["theta_n"])) * inventory_grid**(params["theta_m"]/(1-params["theta_n"]))
 
 	EV0, V1, inventory_star, m_star, adj_share, adj_val = iterate_firm_vf(price_guess, inventory_grid, EV0_guess, 1e-6, params)
-	#EV0_spline = UnivariateSpline(inventory_grid, EV0) 
+	
 	V1_spline = UnivariateSpline(inventory_grid, V1)
 	
 	s_ = inventory_star
