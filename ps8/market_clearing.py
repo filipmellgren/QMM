@@ -37,5 +37,5 @@ def market_clearing(price_guess, params):
 	price_preferences = marginal_utility
 	diff = price_guess - price_preferences
 	
-	return(diff)
+	return(diff, distr, m_vec, s_vec)
 

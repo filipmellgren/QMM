@@ -4,7 +4,7 @@ import numpy as np
 from market_clearing import market_clearing
 from scipy import optimize
 import scipy as sp
-import ipdb
+import pandas as pd
 
 params = {
 	"beta" : 0.984,
@@ -30,15 +30,16 @@ psi0_grid = np.linspace(
 inventory_grid = np.append(np.array([0]), psi0**psi0_grid)
 params["inventory_grid"] = inventory_grid
 
-price_star = sp.optimize.bisect(market_clearing, 3.21, 3.29, args = params, xtol = 1e-8)
+def simulate_inventory_mgmt(path, params):
+	price_star = sp.optimize.bisect(lambda x: market_clearing(x, params)[0], 3.1, 3.4, xtol = 1e-8)
+	diff, distr, m_vec, s_vec = market_clearing(price_star, params)
+	price_star = np.around(price_star,4)
+	table = pd.DataFrame(np.array([s_vec, distr, m_vec])).round(5)
+	table.index = ["s", "Mass", "m"]
+	table.to_csv(path + "_table.csv")
+	np.savetxt(path + "_price.csv", np.expand_dims(price_star, axis = 0))
+	return
 
-
-
-
-'''
-For the final good distribution, do you guys consider firms at s* at all? He says to only start at s* - m(s*) and then look at the firms not adjusting - but what about the firms that do adjust back to s*? They have to be in our distribution right?
-
-The not adjusting firms make the mass at the related point and the sum of the adjusting firms gives the mass at s*
-
-No firm at s* adjusts so you start from one level below
-'''
+simulate_inventory_mgmt("figures/low_ximax", params)
+params["xi_max"] = 0.333
+simulate_inventory_mgmt("figures/high_ximax", params)
