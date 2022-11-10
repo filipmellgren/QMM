@@ -3,6 +3,7 @@
 import numpy as np
 from scipy.optimize import minimize_scalar
 from scipy.interpolate import UnivariateSpline
+import ipdb
 
 def firm_choices(inventory_grid, price_guess, EV0_guess, params):
 	''' Outputs vectors for each inventory on grid.

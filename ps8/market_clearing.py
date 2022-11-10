@@ -1,4 +1,4 @@
-from final_good_distribution import find_ergodic_distribution, find_ergodic_distribution2
+from final_good_distribution import find_ergodic_distribution, find_distribution_loop
 import numpy as np
 from firm_choices import final_good_production
 import ipdb
@@ -15,8 +15,8 @@ def market_clearing(price_guess, params):
 	wage = eta / price_guess
 	params["wage"] = wage
 
-	distr, m_vec, s_grid, s_vec = find_ergodic_distribution2(price_guess, params)
-
+	distr, m_vec, s_vec = find_distribution_loop(price_guess, params)
+	
 	intermediate_good_demand = m_vec @ distr
 	X = intermediate_good_demand
 
@@ -27,14 +27,15 @@ def market_clearing(price_guess, params):
 	# Solve for L
 	labor_ig = X / (zbar * KLalpha_ratio)
 	K = labor_ig * (wage /(zbar * (1-alpha)))**(1/alpha)
-
+	
 	n_vec = (theta_n/eta * price_guess * m_vec**theta_m)**(1/(1-theta_n))
 	G = final_good_production(m_vec, n_vec, params)
 
-	consumption = np.sum((G - sigma * (s_vec - m_vec))*distr) - delta * K # Too low -> Check s_j and functions of s_j
-	print("consumption")
-	marginal_utility = 1/consumption # Too high
-	price_preferences = marginal_utility # Too high
-	diff = price_guess - price_preferences # Too low
+	consumption = np.sum((G - sigma * (s_vec - m_vec))*distr) - delta * K 
+	
+	marginal_utility = 1/consumption
+	price_preferences = marginal_utility
+	diff = price_guess - price_preferences
 	
 	return(diff)
+
