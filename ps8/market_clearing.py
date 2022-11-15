@@ -16,7 +16,7 @@ def market_clearing(price_guess, params):
 	params["wage"] = wage
 
 	distr, m_vec, s_vec = find_distribution_loop(price_guess, params)
-	
+	ipdb.set_trace()
 	intermediate_good_demand = m_vec @ distr
 	X = intermediate_good_demand
 
