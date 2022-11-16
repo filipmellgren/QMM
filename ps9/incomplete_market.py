@@ -1,17 +1,22 @@
+
 import numpy as np
 from numba import jit
 import quantecon as qe
 from quantecon import MarkovChain
+from quantecon.markov import DiscreteDP
 import ipdb
+import plotly.express as px
+import plotly.graph_objects as go
+import time
+from scipy.optimize import minimize_scalar
+
 
 class	Market:
 	''' Store data and parameterize the incomplete markets economy with aggregate risks
-	TODO: tax, 
 	'''
 	def __init__(self,
 		hh_panel,
 		r = 0.02,
-		w = 1,
 		gamma = 2, # CRRA parameter
 		beta = 0.99, # Discount factor
 		P = np.array([[0.47, 0.53], [0.04, 0.96]]), # Employment Markov transition matrix
@@ -28,8 +33,6 @@ class	Market:
 		''' Initialize the economy with given parameters
 		'''
 		self.r = r
-		self.w = w
-		self.tax = 0.1 # TODO calculate this
 		self.hh_panel = hh_panel
 		self.gamma = gamma
 		self.beta = beta
@@ -44,35 +47,53 @@ class	Market:
 		self.unemployment_rate = 1 - np.mean(hh_panel) # series of unemployment
 		self.L_tilde = 1 / ( 1 - self.unemployment_rate) # How much they work, given that they work. Implies L = 1
 		self.L = 1
+		self.A = 1 # TODO: make general
+		self.capital_from_r()
 		self.s_size = 2 * a_size # Number of states (TODO employed unemployed X num assets)
 		self.a_size = a_size # number of actions
 		self.R = np.empty((self.s_size, self.a_size))
     self.Q = np.zeros((self.s_size, self.a_size, self.s_size))
     self.state_grid = np.asarray(range(2*a_size))
+
+    self.capital_from_r()
+    self.get_wage()
+    self.get_tax_rate()
+
     self.build_R() 
     self.build_Q()
 
+  def capital_from_r(self):
+  	self.K = (self.r/(self.alpha * self.A))**(1/(self.alpha - 1)) * self.L
+  
+  def get_wage(self):
+  	self.wage = (1 - self.alpha) * self.A * self.K**self.alpha * self.L**(-self.alpha)
+  	
+  def get_tax_rate(self):
+  	self.tax = self.mu * self.unemployment_rate
 
-  def set_prices(self, r, w):
+  def set_prices(self, r):
       """
       Use this method to reset prices. Calling the method will trigger a
-      re-build of R.
+      re-build of R, and calculate a new implied firm capital level
       """
-      self.r, self.w = r, w
+      self.r = r
+      self.capital_from_r()
+      self.get_wage()
       self.build_R()
 
+
   def build_Q(self):
-      populate_Q(self.Q, self.s_size, self.a_size, self.state_grid, self.asset_states, self.P)
+      self.Q = populate_Q(self.Q, self.s_size, self.a_size, self.state_grid, self.asset_states, self.P)
 
   def build_R(self):
-  	populate_R(
+  	self.R = populate_R(
   		self.R, 
   		self.s_size,
   		self.a_size,
   		self.state_grid,
   		self.asset_states,
   		self.r,
-  		self.w,
+  		self.wage,
   		self.tax,
   		self.L_tilde,
   		self.mu,
@@ -87,8 +108,6 @@ class	Market:
 			path.append(np.exp(self.rho * np.log(path[time]) + shock))
 		return(path)
 
-
-
 @jit(nopython=True)
 def populate_R(R, n, m, state_grid, asset_states, rate, wage, tax, labor, mu, delta, gamma):
   """
@@ -101,11 +120,14 @@ def populate_R(R, n, m, state_grid, asset_states, rate, wage, tax, labor, mu, de
   	assets = assets_from_state(s, asset_states)
 
   	for a in range(m):
+  	
   		savings = asset_states[a]
   		consumption = wage * ((1-tax) * labor * employed + mu * (1 - employed)) + (1 + rate - delta) * assets - savings
-  		
+  		if consumption <= 0:
+  			R[s, a] = -np.Inf
+  			continue
   		R[s, a] = (consumption**(1 - gamma) - 1) / (1 - gamma)
-  return
+  return(R)
 
 @jit(nopython=True)
 def populate_Q(Q, n, m, state_grid, asset_states, P):
@@ -130,8 +152,6 @@ def populate_Q(Q, n, m, state_grid, asset_states, P):
 				employed_next = is_employed(s_next, state_grid)
 				Q[s_now, act, s_next] = P[int(employed), int(employed_next)]
 	return(Q)
-
-
 
 P = np.array([[0.47, 0.53], [0.04, 0.96]])
 
@@ -164,11 +184,11 @@ def sim_hh_panel(P, T, N_hh):
 		hh_list.append(hh_trajectory)
 	return(np.asarray(hh_list))
 
-hh_panel = sim_hh_panel(P, 1000, 2000)
+hh_panel = sim_hh_panel(P, 1000, 2000) # TODO: might not be strictly necessary
+	
 steady_state = Market(
 	hh_panel,
 	r = 0.02,
-	w = 1,
 	gamma = 2, # CRRA parameter
 	beta = 0.99, # Discount factor
 	P = np.array([[0.47, 0.53], [0.04, 0.96]]), # Employment Markov transition matrix
@@ -180,49 +200,26 @@ steady_state = Market(
 	T = 1000,
 	rho = 0.95,
 	sigma = 0.007,
-	a_size = 1000)
+	a_size = 1000) # 1000
 
+def objective_function(rate_guess, market_object):
 
+	market_object.set_prices(rate_guess)
 
-# Use the instance to build a discrete dynamic program
-ddp = DiscreteDP(am.R, am.Q, am.β)
+	ddp = DiscreteDP(market_object.R, market_object.Q, market_object.beta)
 
-# Solve using policy function iteration
-results = am_ddp.solve(method='policy_iteration')
+	results = ddp.solve(method='policy_iteration') # Policy modified_policy_iteration
 
-
-def update_beliefs(K, ix):
-	K_present = np.log(K[ix])
-	K_lead = np.log(K[ix+1])
-	slope, intercept, r, p, se = sp.stats.linregress(K_present, y=K_lead)
-	coef_new = np.array([intercept, slope])
-	return(coef_new, r**2)
-
-def find_eq(belief_guess, model):
-	''' iterate on beliefs until fixed point is found
-	model is an instance of class Market
-	'''
+	asset_grid_rep = np.tile(steady_state.asset_states, 2)
 	
-	hh_panel = sim_hh_panel(P, 5000, 1000)
-	# TODO: need agg shocks as well?
-	loss = 100
+	distr = results.mc.stationary_distributions[0] # TODO: can in principle be multiple distributions with this dsitribution. How to handle that.
+	HH_savings =  distr @ asset_grid_rep
+	
+	loss = (market_object.K - HH_savings)**2
+	
+	return(loss)
 
-	while loss > 1e-5:
-		hh_policy = find_hh_policy()
+sol = minimize_scalar(objective_function, bounds=(0.01, 0.1), method='bounded', args = steady_state)
 
-		history
-
-		update_beliefs
-		
-		loss = (belief_guess - beliefs) @ (belief_guess - beliefs)
-
-		belief_guess_new = belief_guess * 0.9 + 0.1 * beliefs
-
-	return(belief_guess_new)
-
-
-
-
-tmp = steady_state.generate_tfp_seq()
-
-
+steady_state.set_prices(sol.x)
+steady_state.K
