@@ -9,7 +9,11 @@ import plotly.express as px
 import plotly.graph_objects as go
 import time
 from scipy.optimize import minimize_scalar
+import scipy as sp
+from scipy import linalg
 
+import warnings
+warnings.filterwarnings("error")
 
 class	Market:
 	''' Store data and parameterize the incomplete markets economy with aggregate risks
@@ -65,11 +69,24 @@ class	Market:
   def capital_from_r(self):
   	self.K = (self.r/(self.alpha * self.A))**(1/(self.alpha - 1)) * self.L
   
+  def r_from_capital(self):
+  	self.r = self.alpha * self.A * self.K**(self.alpha - 1) * self.L**(1- self.alpha)
+  	
   def get_wage(self):
   	self.wage = (1 - self.alpha) * self.A * self.K**self.alpha * self.L**(-self.alpha)
   	
   def get_tax_rate(self):
   	self.tax = self.mu * self.unemployment_rate
+
+  def set_capital(self, K):
+  	''' 
+  	Use this method to reset capital. This will trigger a calculation of the new interest rate
+  	amd build a new reward matrix based on that.
+  	'''
+  	self.K = K
+  	self.r_from_capital()
+  	self.get_wage()
+  	self.build_R()
 
   def set_prices(self, r):
       """
@@ -184,6 +201,74 @@ def sim_hh_panel(P, T, N_hh):
 		hh_list.append(hh_trajectory)
 	return(np.asarray(hh_list))
 
+def solve_hh(R, Q, rate, wage, tax, labor, mu, risk_aver, disc_factor, delta, state_grid, asset_states):
+	''' Solve the HH problem
+	Returns a policy vector. One savings value per possible state. 
+	'''
+	
+	policy_guess = np.tile(np.maximum(np.arange(len(asset_states)) - 2,0), 2)
+	tol = 1e-3
+	diff = 100
+	while diff > tol:
+		diff = 0
+		policy_guess_upd = egm_update(policy_guess, R, Q, rate, wage, tax, labor, mu, risk_aver, disc_factor, delta, state_grid, asset_states)
+
+		ipdb.set_trace()
+		policy_guess_upd = policy_guess_upd.astype(int)
+		
+		diff = np.max(np.abs(asset_states[policy_guess_upd] - asset_states[policy_guess]))
+		print(diff)
+		policy_guess = policy_guess_upd.copy()
+	return(policy_guess)
+policy_guess_upd[102]
+np.argmax(np.abs(asset_states[policy_guess_upd] - asset_states[policy_guess]))
+
+asset_states[policy_guess_upd][997]
+asset_states[policy_guess][997]
+
+@jit(nopython=True)
+def egm_update(policy_guess, R, Q, rate, wage, tax, labor, mu, risk_aver, disc_factor, delta, state_grid, asset_states):
+	''' Use EGM to solve the HH problem.
+
+	'''
+	# From Utility to Margiunal Utility with CRRA preferences:
+	mu_cons = ((1 - risk_aver) * R - 1)**(-risk_aver / (1 - risk_aver))
+	exog_grid = asset_states
+	outcome = asset_states
+
+	policy_mat = np.empty(policy_guess.shape)
+
+	#for state in range(len(state_grid)):
+	for employed in [0,1]:
+		# TODO: don't need to iterate over assets here, only employment status
+		#assets = assets_from_state(state, asset_states)
+		#employed = is_employed(state, state_grid)
+		income = wage * ((1-tax) * labor * employed + mu * (1 - employed))
+		endog_assets = []
+
+		for action in range(len(asset_states)):
+			E_term = 0
+			savings = asset_states[action]
+			for state_next in range(len(state_grid)):
+				action_guess_ix = policy_guess[state_next]
+				mu_cons_fut = mu_cons[state_next, action_guess_ix]
+				if mu_cons_fut == np.Inf:
+					continue
+				prob = Q[state, action, state_next] # TODO: depends on state. It shouldn't Use P and indicator whether action -> state_next
+				E_term += prob * mu_cons_fut * (1 + rate - delta)
+			# Rate already in expectation
+			consumption_today = (disc_factor * E_term)**(-1/risk_aver)
+			# Mapping from actions to assets_endog, given state:
+			endog_assets.append((1/(1+rate-delta)) * (consumption_today + savings - income))
+			#endog_savings.append(endog_assets * (1+rate-delta) - consumption_today + income)
+
+		endog_assets = np.asarray(endog_assets)
+		policy_mat[employed] = np.interp(x = exog_grid, xp = endog_assets, fp = outcome)
+		#policy_mat[employed] = np.argmin(np.abs(action_chosen - asset_states))
+	
+	return(policy_mat)
+
+
 hh_panel = sim_hh_panel(P, 1000, 2000) # TODO: might not be strictly necessary
 	
 steady_state = Market(
@@ -202,24 +287,104 @@ steady_state = Market(
 	sigma = 0.007,
 	a_size = 1000) # 1000
 
-def objective_function(rate_guess, market_object):
+def get_transition_matrix(Q, policy, state_grid):
+	''' From the overall transition matrix, return the transition matrix based on how agents choose. I.e. subset the action that is chosen, keeping all transitions, for each state
 
+	Compared to quantecons version
+	mc = qe.MarkovChain(P)
+	mc.stationary_distributions 
+	'''
+
+	P = []
+	for state in range(len(state_grid)):
+		transitions = Q[state,policy[state],:]
+		P.append(transitions)
+	P = np.asarray(P)
+	return(P)
+
+def get_distribution(P):
+	''' Get ergodic distribution associated with unit eigenvalue
+	Compared to quantecon's
+	mc = qe.MarkovChain(P)
+	mc.stationary_distributions 
+	(Not exact, but similar)
+	'''
+	value, vector = sp.sparse.linalg.eigs(P.T, k=1, sigma=1) # Search for one eigenvalue close to sigma.
+	assert np.isclose(value, 1)
+	vector = np.abs(np.real(vector))
+	vector = vector / np.sum(vector)
+
+	return(np.squeeze(vector))
+
+def objective_function(rate_guess, market_object):
+	
 	market_object.set_prices(rate_guess)
 
 	ddp = DiscreteDP(market_object.R, market_object.Q, market_object.beta)
 
-	results = ddp.solve(method='policy_iteration') # Policy modified_policy_iteration
+	#results = ddp.solve(method='policy_iteration') # Policy modified_policy_iteration
+	# Returns sigma (index of best action), mc, which can be used to find stationary distribution.
+	# mc is asscoiated with a transition matrix based on the best policy.
 
-	asset_grid_rep = np.tile(steady_state.asset_states, 2)
+	#distr2 = results.mc.stationary_distributions[0]
+
+	policy = solve_hh(market_object.R, market_object.Q, rate_guess, market_object.wage, market_object.tax, market_object.L_tilde, market_object.mu, market_object.gamma, market_object.beta,market_object.delta, market_object.state_grid, market_object.asset_states)
 	
-	distr = results.mc.stationary_distributions[0] # TODO: can in principle be multiple distributions with this dsitribution. How to handle that.
-	HH_savings =  distr @ asset_grid_rep
-	
-	loss = (market_object.K - HH_savings)**2
+	ipdb.set_trace()
+	# TODO: when I use the policy to create P, I get very weird values.
+	# Otherwise my functions seem to work really well. Just need to fix the egm so it correpsonds with quantecons implementation. 
+	P = get_transition_matrix(market_object.Q, policy, market_object.state_grid)
+	P = get_transition_matrix(market_object.Q, results.sigma, market_object.state_grid)
+	mc = qe.MarkovChain(P)
+	distr = mc.stationary_distributions[0]
+	distr0 = get_distribution(P)
+	K_HH0 = distr0@ market_object.asset_states[policy]
+	K_HH =  distr @ market_object.asset_states[policy]
+	K_HH2 = distr2 @ market_object.asset_states[results.sigma]
+	distr2@ market_object.asset_states[policy]
+	ipdb.set_trace()
+	loss = (market_object.K - K_HH)**2
+
+	distr2.shape
 	
 	return(loss)
 
-sol = minimize_scalar(objective_function, bounds=(0.01, 0.1), method='bounded', args = steady_state)
+objective_function(0.035, steady_state)
+
+
+
+np.sum(distr)
+
+sol = minimize_scalar(objective_function, bounds=(0.03, 0.7), method='bounded', args = steady_state)
 
 steady_state.set_prices(sol.x)
 steady_state.K
+steady_
+# Found steady state capital: 37.84044773656684 with 1000 grid points
+# sol.x = 0.035189
+
+grid = np.array([0,1,2,3,4])
+grid2 = np.array([1,2,4,-1,4])
+
+aa = np.array([grid, grid2])
+
+aa[tuple(np.array([0,1,0,0,1])),:]
+aa[:,np.array([0,1,0,0,1])]
+
+len(grid)
+
+np.take(np.array([0,1,0,0,1]), aa)
+np.compress(np.array([3,1,2,2,3]), aa, axis=1)
+np.choose([0,1,0,0,1], aa)
+ai = np.expand_dims(np.array([0,1,0,0,1]), axis=0)
+np.take_along_axis(aa, ai, axis = 0)
+
+np.max(np.abs(grid-grid2))
+
+
+fig = go.Figure(data=go.Scatter(x=policy, y=policy - results.sigma))
+fig.show()
+
+
+asset_states[policy_guess_upd] - policy_guess
+
