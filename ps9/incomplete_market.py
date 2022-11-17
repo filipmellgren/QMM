@@ -40,11 +40,11 @@ class	Market:
 		'''
 		self.r = r
 		self.hh_panel = hh_panel
-		self.gamma = gamma
-		self.beta = beta
+		self.gamma = gamma # Risk aversion
+		self.beta = beta # Discount factor
 		self.P = P
 		self.mu = mu
-		self.delta = delta
+		self.delta = delta # Depreciation
 		self.alpha = alpha
 		self.asset_states = np.logspace(start = borrow_constr, stop = np.log10(max_asset+1), num= a_size)-1
 		self.sigma = sigma # TODO: what does he mean?
@@ -201,7 +201,7 @@ def sim_hh_panel(P, T, N_hh):
 		hh_list.append(hh_trajectory)
 	return(np.asarray(hh_list))
 
-def solve_hh(P, R, Q, rate, wage, tax, labor, mu, risk_aver, disc_factor, delta, state_grid, asset_states):
+def solve_hh(P, rate, wage, tax, labor, mu, risk_aver, disc_factor, delta, state_grid, asset_states):
 	''' Solve the HH problem
 	Returns a policy vector. One savings value per possible state. 
 	Comes very close to quantecon's  policy iteration values. Sometimes the policy is slightly too high relative to quantecon (never too low). Most often the same. 
@@ -213,7 +213,7 @@ def solve_hh(P, R, Q, rate, wage, tax, labor, mu, risk_aver, disc_factor, delta,
 	diff = 100
 	while diff > tol:
 		diff = 0
-		policy_guess_upd = egm_update(policy_guess, P, R, Q, rate, wage, tax, labor, mu, risk_aver, disc_factor, delta, state_grid, asset_states)
+		policy_guess_upd = egm_update(policy_guess, P, rate, wage, tax, labor, mu, risk_aver, disc_factor, delta, state_grid, asset_states)
 		diff = np.max(np.abs(policy_guess_upd - policy_guess))
 		policy_guess = policy_guess_upd.copy()
 
@@ -229,7 +229,7 @@ def mu_cons(consumption, risk_aver):
 	return(consumption**(-risk_aver))
 
 @jit(nopython=True, parallel = False)
-def egm_update(policy_guess, P, R, Q, rate, wage, tax, labor, mu, risk_aver, disc_factor, delta, state_grid, asset_states):
+def egm_update(policy_guess, P, rate, wage, tax, labor, mu, risk_aver, disc_factor, delta, state_grid, asset_states):
 	''' Use EGM to solve the HH problem.
 
 	'''
@@ -243,8 +243,6 @@ def egm_update(policy_guess, P, R, Q, rate, wage, tax, labor, mu, risk_aver, dis
 	#for state in range(len(state_grid)):
 	for employed in [0,1]:
 		
-		#assets = assets_from_state(state, asset_states)
-		#employed = is_employed(state, state_grid)
 		income = wage * ((1-tax) * labor * employed + mu * (1 - employed))
 		endog_assets = []
 
@@ -252,7 +250,6 @@ def egm_update(policy_guess, P, R, Q, rate, wage, tax, labor, mu, risk_aver, dis
 			E_term = 0
 			savings = asset_states[action]
 			for state_next in range(len(state_grid)):
-				# TODO: test if addition will be zero, if yes, then skip ahead. Otherwise, just use P for probability
 				# Test whether state_next is reached by action taken before proceeding:
 				assets_fut = assets_from_state(state_next, asset_states)
 				if assets_fut != savings:
@@ -271,11 +268,9 @@ def egm_update(policy_guess, P, R, Q, rate, wage, tax, labor, mu, risk_aver, dis
 			consumption_today = (disc_factor * E_term)**(-1/risk_aver) # Rate already in expectation
 			# Mapping from actions to assets_endog, given state:
 			endog_assets.append((1/(1+rate-delta)) * (consumption_today + savings - income))
-			#endog_savings.append(endog_assets * (1+rate-delta) - consumption_today + income)
 
 		endog_assets = np.asarray(endog_assets)
 		policy_mat[employed,:] = np.interp(x = exog_grid, xp = endog_assets, fp = asset_states)
-		#policy_mat[employed] = np.argmin(np.abs(action_chosen - asset_states))
 
 	return(policy_mat)
 
@@ -312,7 +307,7 @@ def objective_function(rate_guess, market_object):
 	
 	market_object.set_prices(rate_guess)
 
-	policy = solve_hh(market_object.P, market_object.R, market_object.Q, rate_guess, market_object.wage, market_object.tax, market_object.L_tilde, market_object.mu, market_object.gamma, market_object.beta,market_object.delta, market_object.state_grid, market_object.asset_states)
+	policy = solve_hh(market_object.P, rate_guess, market_object.wage, market_object.tax, market_object.L_tilde, market_object.mu, market_object.gamma, market_object.beta,market_object.delta, market_object.state_grid, market_object.asset_states)
 
 	P = get_transition_matrix(market_object.Q, policy, market_object.state_grid)
 
@@ -349,8 +344,9 @@ sol = minimize_scalar(objective_function, bounds=(0.03, 0.04), method='bounded',
 
 steady_state.set_prices(sol.x)
 steady_state.K
-
+policy = solve_hh(steady_state.P, steady_state.R, steady_state.Q, sol.x, steady_state.wage, steady_state.tax, steady_state.L_tilde, steady_state.mu, steady_state.gamma, steady_state.beta,steady_state.delta, steady_state.state_grid, steady_state.asset_states)
 # Found steady state capital: 39.2538 with 1000 grid points
 # sol.x = 0.03437
+policy_ss = steady_state.asset_states[policy]
 
 
