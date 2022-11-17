@@ -172,8 +172,6 @@ def populate_Q(Q, n, m, state_grid, asset_states, P):
 				Q[s_now, act, s_next] = P[int(employed), int(employed_next)]
 	return(Q)
 
-P = np.array([[0.47, 0.53], [0.04, 0.96]])
-
 @jit(nopython=True)
 def is_employed(s, state_grid):
 	''' 
@@ -281,25 +279,6 @@ def egm_update(policy_guess, P, R, Q, rate, wage, tax, labor, mu, risk_aver, dis
 
 	return(policy_mat)
 
-P = np.array([[0.47, 0.53], [0.04, 0.96]])
-hh_panel = sim_hh_panel(P, 1000, 2000) # TODO: might not be strictly necessary
-	
-steady_state = Market(
-	hh_panel,
-	r = 0.02,
-	gamma = 2, # CRRA parameter
-	beta = 0.99, # Discount factor
-	P = np.array([[0.47, 0.53], [0.04, 0.96]]), # Employment Markov transition matrix
-	mu = 0.15, # Unemployment replacement rate
-	delta = 0.025, # Capital depreciation rate
-	alpha = 0.36, # Capital share
-	borrow_constr = 0, # Borrowing constraint
-	max_asset = 500,
-	T = 1000,
-	rho = 0.95,
-	sigma = 0.007,
-	a_size = 100) # 1000
-
 def get_transition_matrix(Q, policy, state_grid):
 	''' From the overall transition matrix, return the transition matrix based on how agents choose. I.e. subset the action that is chosen, keeping all transitions, for each state
 
@@ -333,72 +312,45 @@ def objective_function(rate_guess, market_object):
 	
 	market_object.set_prices(rate_guess)
 
-	ddp = DiscreteDP(market_object.R, market_object.Q, market_object.beta)
-
-	results = ddp.solve(method='policy_iteration') # Policy modified_policy_iteration
-	# Returns sigma (index of best action), mc, which can be used to find stationary distribution.
-	# mc is asscoiated with a transition matrix based on the best policy.
-
-	#distr2 = results.mc.stationary_distributions[0]
-
 	policy = solve_hh(market_object.P, market_object.R, market_object.Q, rate_guess, market_object.wage, market_object.tax, market_object.L_tilde, market_object.mu, market_object.gamma, market_object.beta,market_object.delta, market_object.state_grid, market_object.asset_states)
-	
-	results.sigma - np.asarray(policy)
-	ipdb.set_trace()
-	# TODO: when I use the policy to create P, I get very weird values.
-	# Otherwise my functions seem to work really well. Just need to fix the egm so it correpsonds with quantecons implementation. 
-	P = get_transition_matrix(market_object.Q, policy, market_object.state_grid)
-	P = get_transition_matrix(market_object.Q, results.sigma, market_object.state_grid)
-	mc = qe.MarkovChain(P)
-	distr = mc.stationary_distributions[0]
-	distr0 = get_distribution(P)
-	K_HH0 = distr0@ market_object.asset_states[policy]
-	K_HH =  distr @ market_object.asset_states[policy]
-	K_HH2 = distr2 @ market_object.asset_states[results.sigma]
-	distr2@ market_object.asset_states[policy]
-	ipdb.set_trace()
-	loss = (market_object.K - K_HH)**2
 
-	distr2.shape
-	
+	P = get_transition_matrix(market_object.Q, policy, market_object.state_grid)
+
+	distr = get_distribution(P)
+
+	K_HH =  distr @ market_object.asset_states[policy]
+
+	loss = (market_object.K - K_HH)**2
+	print(market_object.K - K_HH)
 	return(loss)
 
-objective_function(0.035, steady_state)
+
+P = np.array([[0.47, 0.53], [0.04, 0.96]])
+hh_panel = sim_hh_panel(P, 1000, 2000) # TODO: might not be strictly necessary
+	
+steady_state = Market(
+	hh_panel,
+	r = 0.02,
+	gamma = 2, # CRRA parameter
+	beta = 0.99, # Discount factor
+	P = np.array([[0.47, 0.53], [0.04, 0.96]]), # Employment Markov transition matrix
+	mu = 0.15, # Unemployment replacement rate
+	delta = 0.025, # Capital depreciation rate
+	alpha = 0.36, # Capital share
+	borrow_constr = 0, # Borrowing constraint
+	max_asset = 500,
+	T = 1000,
+	rho = 0.95,
+	sigma = 0.007,
+	a_size = 1000) # 1000
 
 
-
-np.sum(distr)
-
-sol = minimize_scalar(objective_function, bounds=(0.03, 0.7), method='bounded', args = steady_state)
+sol = minimize_scalar(objective_function, bounds=(0.03, 0.04), method='bounded', args = steady_state)
 
 steady_state.set_prices(sol.x)
 steady_state.K
-steady_
-# Found steady state capital: 37.84044773656684 with 1000 grid points
-# sol.x = 0.035189
 
-grid = np.array([0,1,2,3,4])
-grid2 = np.array([1,2,4,-1,4])
+# Found steady state capital: 39.2538 with 1000 grid points
+# sol.x = 0.03437
 
-aa = np.array([grid, grid2])
-
-aa[tuple(np.array([0,1,0,0,1])),:]
-aa[:,np.array([0,1,0,0,1])]
-
-len(grid)
-
-np.take(np.array([0,1,0,0,1]), aa)
-np.compress(np.array([3,1,2,2,3]), aa, axis=1)
-np.choose([0,1,0,0,1], aa)
-ai = np.expand_dims(np.array([0,1,0,0,1]), axis=0)
-np.take_along_axis(aa, ai, axis = 0)
-
-np.max(np.abs(grid-grid2))
-
-
-fig = go.Figure(data=go.Scatter(x=policy, y=policy - results.sigma))
-fig.show()
-
-
-asset_states[policy_guess_upd] - policy_guess
 
