@@ -1,6 +1,7 @@
 
 import numpy as np
 from numba import jit, prange
+import numba as nb
 import quantecon as qe
 from quantecon import MarkovChain
 from quantecon.markov import DiscreteDP
@@ -73,7 +74,16 @@ class	Market:
   
   def r_from_capital(self):
   	self.r = self.alpha * self.A * self.K**(self.alpha - 1) * self.L**(1- self.alpha)
+
+  def set_tfp(self, new_tfp, K):
+  	''' Shock TFP, guessing new value of K
+  	Updating K triggers an updating of prices, and therefore also capital
+  	'''
+  	self.A = new_tfp
+  	self.set_capital(K)
   	
+
+
   def get_wage(self):
   	self.wage = (1 - self.alpha) * self.A * self.K**self.alpha * self.L**(-self.alpha)
   	
@@ -217,12 +227,19 @@ def solve_hh(P, rate, wage, tax, labor, mu, risk_aver, disc_factor, delta, state
 		diff = np.max(np.abs(policy_guess_upd - policy_guess))
 		policy_guess = policy_guess_upd.copy()
 
-	policy = policy_guess.flatten()
+	policy = policy_guess.flatten() # TODO: replace with function
 	policy_ix = []
 	for pol in policy:
 		nearest_ix = np.argmin(np.abs(pol - asset_states))
 		policy_ix.append(nearest_ix)
 	return(policy_ix)
+
+def value_array_to_index(value_array, grid):
+	array_ix = []
+	for val in value_array:
+		nearest_ix = np.argmin(np.abs(val - grid))
+		array_ix.append(nearest_ix)
+	return(array_ix)
 
 @jit(nopython=True)
 def mu_cons(consumption, risk_aver):
@@ -274,6 +291,7 @@ def egm_update(policy_guess, P, rate, wage, tax, labor, mu, risk_aver, disc_fact
 
 	return(policy_mat)
 
+@jit(nopython = True)
 def get_transition_matrix(Q, policy, state_grid):
 	''' From the overall transition matrix, return the transition matrix based on how agents choose. I.e. subset the action that is chosen, keeping all transitions, for each state
 
@@ -286,7 +304,7 @@ def get_transition_matrix(Q, policy, state_grid):
 	for state in range(len(state_grid)):
 		transitions = Q[state,policy[state],:]
 		P.append(transitions)
-	P = np.asarray(P)
+	
 	return(P)
 
 def get_distribution(P):
@@ -303,15 +321,52 @@ def get_distribution(P):
 
 	return(np.squeeze(vector))
 
+@jit(nopython=True, parallel = True)
+def get_distribution_iterate(distr_guess, P, state_grid, tol = 1e-8):
+	''' Find ergodic distribution from a transition matrix
+
+	Input:
+		distr_guess : numpy array of shape (len(state_grid),)
+
+		P : transition matrix of shape (len(state_grid), len(state_grid))
+
+		state_grid : grid of all possible states. Only its len matters.
+
+	Returns:
+		lambd : The Ergodic distribution. Presumbaly the one associated with the unit Eigenvalue.
+	'''
+	lambd = np.copy(distr_guess) # 2000 vector that sums to one
+	
+	diff = 100.0
+	while diff > tol:
+		diff = 0.0
+		lambdap = np.full(lambd.shape, 0.0)
+		for state_next in prange(len(state_grid)):
+			for state in range(len(state_grid)):
+				prob = P[state, state_next]
+				if prob == 0:
+					continue
+				lambdap[state_next] += prob * lambd[state]
+		
+		diff = np.max(np.abs(lambdap - lambd))
+		lambd = np.copy(lambdap)
+		# Below assertion cannot be used in JIT mode
+	#assert(abs(np.sum(distr_guess) - 1)<0.00001), print(np.sum(distr_guess))
+
+	return(lambd)
+
 def objective_function(rate_guess, market_object):
 	
 	market_object.set_prices(rate_guess)
 
 	policy = solve_hh(market_object.P, rate_guess, market_object.wage, market_object.tax, market_object.L_tilde, market_object.mu, market_object.gamma, market_object.beta,market_object.delta, market_object.state_grid, market_object.asset_states)
 
-	P = get_transition_matrix(market_object.Q, policy, market_object.state_grid)
-
-	distr = get_distribution(P)
+	P = get_transition_matrix(market_object.Q, nb.typed.List(policy), market_object.state_grid)
+	P = np.asarray(P) # P.shape = (2000, 2000) = (#states X #states)
+	
+	#distr = get_distribution(P) # TODO: different guess
+	distr_guess = np.full(market_object.state_grid.shape, 1)/len(market_object.state_grid)
+	distr = get_distribution_iterate(distr_guess, P, market_object.state_grid)
 
 	K_HH =  distr @ market_object.asset_states[policy]
 
@@ -341,12 +396,15 @@ steady_state = Market(
 
 
 sol = minimize_scalar(objective_function, bounds=(0.03, 0.04), method='bounded', args = steady_state)
+rate_ss = sol.x
 
-steady_state.set_prices(sol.x)
+rate_ss = 0.034372948575014266 
+steady_state.set_prices(rate_ss)
 steady_state.K
-policy = solve_hh(steady_state.P, steady_state.R, steady_state.Q, sol.x, steady_state.wage, steady_state.tax, steady_state.L_tilde, steady_state.mu, steady_state.gamma, steady_state.beta,steady_state.delta, steady_state.state_grid, steady_state.asset_states)
+policy = solve_hh(steady_state.P, rate_ss, steady_state.wage, steady_state.tax, steady_state.L_tilde, steady_state.mu, steady_state.gamma, steady_state.beta,steady_state.delta, steady_state.state_grid, steady_state.asset_states)
 # Found steady state capital: 39.2538 with 1000 grid points
 # sol.x = 0.03437
-policy_ss = steady_state.asset_states[policy]
+policy_ss = steady_state.asset_states[policy].reshape(2,-1)
 
+objective_function(rate_ss, steady_state)
 
