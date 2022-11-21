@@ -1,6 +1,9 @@
 import numpy as np
+from household_problem import egm_update, policy_to_grid
+from distribution_funcs import get_transition_matrix, get_distribution, get_distribution_fast
+import numba as nb
 # Solve for nonlinear steqady state. DOne!
-
+import ipdb
 
 # Solve for transition path to small shock (e.g. TFP) imposing market clearing
 def solve_trans_path(ss, T, distr0, policy_ss, K_guess):
@@ -9,8 +12,8 @@ def solve_trans_path(ss, T, distr0, policy_ss, K_guess):
 		# K can be a linear decay
 	K0 = ss.K 
 	diff = 100
-	tol = 1e-2
-	weight = 1e-6
+	tol = 1e-6
+	weight = 2e-1
 
 	# TODO: look at capital to output ratio. Scale by shock size for guess of capital in the shock period, then decay this
 	#K_guess = np.linspace(38.4, K, num = T+1)
@@ -55,7 +58,7 @@ def solve_trans_path(ss, T, distr0, policy_ss, K_guess):
 		K_guess = (1- weight) * K_guess[1:T+1] + (weight) * K_HH
 		K_guess = np.insert(K_guess, 0, K0)
 		print((diff_array[diff_ix], weight))
-		weight = np.maximum(weight*0.99, 1e-7)
+		weight = np.maximum(weight*0.925, 1e-5)
 
 	return(K_guess, K_HH_list, tfp, T)
 
@@ -63,14 +66,16 @@ def solve_trans_path(ss, T, distr0, policy_ss, K_guess):
 def backward_iterate_policy(tfp, K_guess, policy_ss, T, ss):
 	''' Iterate backwards to get policies in transition.
 	ss is an instance of Market
+	policy_ss : is the policy in steady state. A numpy array of income states X asset states containing values (not indices) of savings. 
 	'''
 	policy_list = [policy_ss]
 	for time in reversed(range(T)):
 		tfp_t = tfp[time]
 		K_t = K_guess[time]
 		ss.set_tfp(tfp_t, K_t)
-		#ss.set_capital(K_t) # OBS: this updates the market object's rate (so it is no longer steady state)
+		
 		policy_prev = policy_list[-1]
+		
 		policy_t = egm_update(policy_prev, ss.P, ss.r, ss.wage, ss.tax, ss.L_tilde, ss.mu, ss.gamma, ss.beta, ss.delta, ss.state_grid, ss.asset_states) # Can use egm_update, do not iterate on it
 		policy_list.append(policy_t)
 	
@@ -85,78 +90,18 @@ def forward_iterate_distribution(policy, distr0, T, ss):
 	This function is kind of slow compared to the backward iteration.
 	distr_guess : a guess for the distribution. A good guess is the distribution from a previous iteration. Is a list of length T.
 	'''
-	# TODO: what distribution corespnds to what olicty
+	
 	distr_list = [distr0]
 	for time in range(T):
 		policy_t = policy[time]
 		#policy_t_ix = value_array_to_index(policy_t.flatten(), ss.asset_states)
 		policy_t_ix, alpha_list = policy_to_grid(policy_t.flatten(), ss.asset_states)
-		P = get_transition_matrix(ss.Q, nb.typed.List(policy_t_ix), nb.typed.List(alpha_list), ss.state_grid) # TODO: is Q not changing? No, but P is, and that updates
+		P = get_transition_matrix(ss.Q, nb.typed.List(policy_t_ix), nb.typed.List(alpha_list), ss.state_grid) 
 		P = np.asarray(P)
-		try:
-			distr_t = get_distribution(P)
-		except:
-			ipdb.set_trace()
-		#distr_t = get_distribution_iterate(distr_guess[time], P, ss.state_grid, tol = 1e-5)
-		#mc = qe.MarkovChain(P)
-		#distr_t = mc.stationary_distributions[0]
+		distr_t = get_distribution_fast(distr0, P, ss.state_grid, tol = 1e-10) # TODO better initial guess
+	
 		distr_list.append(distr_t)
 	distr = np.asarray(distr_list)
 	return(distr)
-
-if name == "__main__":
-	ss = steady_state
-	T = 300
-	K_guess = np.repeat(ss.K, T+1)
-	policy_ss = np.reshape(np.asarray(policy_ss), (2, 1000))
-	K_sol, K_HH_evol, tfp_seq, T = solve_trans_path(ss, T, distr, policy_ss, K_guess)
-
-
-
-
-
-	K_sol.shape
-
-	import pandas as pd
-	df = pd.DataFrame(K_HH_evol)
-
-	df["iter"] = df.index
-
-	df2 = pd.melt(df, id_vars = "iter", var_name = "time", value_name = "K")
-
-	fig = px.line(df2, x="time", y="K", color = "iter")
-	fig.show()
-
-
-
-
-
-	df3 = pd.DataFrame(tfp_seq)
-	df3 = df3.reset_index()
-	fig = px.line(df3, x = "index", y = 0)
-	fig.show()
-
-	ss.K
-
-
-	time = np.arange(len(tmp))
-	df = pd.DataFrame(np.array([tmp, time]))
-
-
-
-	tmp0 = tmp
-	print((1, 2))
-
-	tmp = [1,2,3,4]
-	tmp[-1]
-	tmp.append(5)
-
-	# Use the Impulse Response Function as a numerically computed derivative
-
-	# Treat the value of a variable at point t as the sum of responses to all past shocks
-
-	tmp = np.linspace(0,10,10)
-	np.insert(tmp, 0, 1000)
-
 
 

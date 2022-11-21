@@ -69,6 +69,8 @@ def mu_cons(consumption, risk_aver):
 def egm_update(policy_guess, P, rate, wage, tax, labor, mu, risk_aver, disc_factor, delta, state_grid, asset_states):
 	''' Use EGM to solve the HH problem.
 
+	policy_guess should be values, not indices
+
 	'''
 	# From Utility to Marginal Utility with CRRA preferences:
 	#mu_cons = ((1 - risk_aver) * R - 1)**(-risk_aver / (1 - risk_aver))

@@ -1,7 +1,8 @@
 
 import numpy as np
 from household_problem import solve_hh, policy_to_grid
-from distribution_funcs import get_transition_matrix, get_distribution, get_distribution_iterate
+from distribution_funcs import get_transition_matrix, get_distribution_fast
+from mit_shock import solve_trans_path
 from market_class import Market
 
 from numba import jit, prange
@@ -36,21 +37,14 @@ def objective_function(rate_guess, market_object):
 
 	assert np.all(np.isclose(np.sum(P, axis = 1), 1)), "P is not a transition matrix"
 	
-	try:
-		distr = get_distribution(P)
-	except:
-		print("Probably singular matrix. Find distribution in different way")
-		distr_guess = np.full(market_object.state_grid.shape, 1)/len(market_object.state_grid)
-		distr = get_distribution_iterate(distr_guess, P, market_object.state_grid, tol = 1e-6)
-		#ipdb.set_trace()
-	#distr_guess = np.full(market_object.state_grid.shape, 1)/len(market_object.state_grid)
-	#distr = get_distribution_iterate(distr_guess, P, market_object.state_grid)
+	distr_guess = np.full(market_object.state_grid.shape, 1)/len(market_object.state_grid)
+	distr = get_distribution_fast(distr_guess, P, market_object.state_grid)
 
 	alpha_array = np.asarray(alpha_list)
 	policy_ix_up_array = np.asarray(policy_ix_up)
 	savings = market_object.asset_states[policy_ix_up_array] * alpha_array + market_object.asset_states[policy_ix_up_array - 1] * (1 - alpha_array)
 
-	K_HH =  distr @ savings / (1+ rate_guess - market_object.delta)
+	K_HH =  distr @ savings #/ (1+ rate_guess - market_object.delta)
 
 	loss = (market_object.K - K_HH)**2
 	print(market_object.K - K_HH)
@@ -86,33 +80,84 @@ steady_state = Market(
 	sigma = 0.007,
 	a_size = 1000) # 1000
 
-sol = minimize_scalar(objective_function, bounds=(0.03, 0.04), method='bounded', args = steady_state, options={'xatol': 1e-16, 'maxiter': 500, 'disp': 0})
-
+#sol = minimize_scalar(objective_function, bounds=(0.01, 0.04), method='bounded', args = steady_state)#, options={'xatol': 1e-12, 'maxiter': 500, 'disp': 0})
 
 #rate_ss = sol.x
+rate_ss = 0.022590438230091416
+print("The interest rate is:")
+print(sol.x)
 
-objective_function(sol.x, steady_state)
+#objective_function(sol.x, steady_state)
 
-rate_ss = 0.034372948575014266 
-rate_ss = 0.034373827436522834 # When dividing with 1 + r - delta
-rate_ss = 0.033694825028656845 # When not forcing assets to one grid point, but two. 
+#rate_ss = 0.034372948575014266 
+#rate_ss = 0.034373827436522834 # When dividing with 1 + r - delta
+#rate_ss = 0.033694825028656845 # When not forcing assets to one grid point, but two. 
 steady_state.set_prices(rate_ss)
 steady_state.K
+
 policy = solve_hh(steady_state.P, rate_ss, steady_state.wage, steady_state.tax, steady_state.L_tilde, steady_state.mu, steady_state.gamma, steady_state.beta,steady_state.delta, steady_state.state_grid, steady_state.asset_states)
-# Found steady state capital: 39.2538 with 1000 grid points
-# sol.x = 0.03437
+
 policy_ix_up, alpha_list = policy_to_grid(policy, steady_state.asset_states)
 policy_ss = policy_ix_up
 P_ss = get_transition_matrix(steady_state.Q, nb.typed.List(policy_ix_up), nb.typed.List(alpha_list), steady_state.state_grid)
 P_ss = np.asarray(P_ss)
-distr = get_distribution(P_ss)
-#distr_guess = np.full(steady_state.state_grid.shape, 1)/len(steady_state.state_grid)
-#distr = get_distribution_iterate(distr_guess, P_ss, steady_state.state_grid)
 
-#objective_function(rate_ss, steady_state)
+
+distr_guess = np.full(steady_state.state_grid.shape, 1)/len(steady_state.state_grid)
+distr = get_distribution_fast(distr_guess, P_ss, steady_state.state_grid)
+
+objective_function(rate_ss, steady_state)
+
 ss = steady_state
-T = 300
+T = 500
 K_guess = np.repeat(ss.K, T+1)
 policy_ss = np.reshape(np.asarray(policy_ss), (2, 1000))
+policy_ss = ss.asset_states[policy_ss]
+
 K_sol, K_HH_evol, tfp_seq, T = solve_trans_path(ss, T, distr, policy_ss, K_guess)
+
+
+K_sol.shape
+
+import pandas as pd
+df = pd.DataFrame(K_HH_evol)
+
+df["iter"] = df.index
+
+df2 = pd.melt(df, id_vars = "iter", var_name = "time", value_name = "K")
+
+fig = px.line(df2, x="time", y="K", color = "iter")
+fig.show()
+
+
+
+
+
+	df3 = pd.DataFrame(tfp_seq)
+	df3 = df3.reset_index()
+	fig = px.line(df3, x = "index", y = 0)
+	fig.show()
+
+	ss.K
+
+
+	time = np.arange(len(tmp))
+	df = pd.DataFrame(np.array([tmp, time]))
+
+
+
+	tmp0 = tmp
+	print((1, 2))
+
+	tmp = [1,2,3,4]
+	tmp[-1]
+	tmp.append(5)
+
+	# Use the Impulse Response Function as a numerically computed derivative
+
+	# Treat the value of a variable at point t as the sum of responses to all past shocks
+
+	tmp = np.linspace(0,10,10)
+	np.insert(tmp, 0, 1000)
+
 
