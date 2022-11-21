@@ -227,12 +227,8 @@ def solve_hh(P, rate, wage, tax, labor, mu, risk_aver, disc_factor, delta, state
 		diff = np.max(np.abs(policy_guess_upd - policy_guess))
 		policy_guess = policy_guess_upd.copy()
 
-	policy = policy_guess.flatten() # TODO: replace with function
-	policy_ix = []
-	for pol in policy:
-		nearest_ix = np.argmin(np.abs(pol - asset_states))
-		policy_ix.append(nearest_ix)
-	return(policy_ix)
+	policy = policy_guess.flatten()
+	return(policy)
 
 def value_array_to_index(value_array, grid):
 	array_ix = []
@@ -240,6 +236,35 @@ def value_array_to_index(value_array, grid):
 		nearest_ix = np.argmin(np.abs(val - grid))
 		array_ix.append(nearest_ix)
 	return(array_ix)
+
+def policy_to_grid(policy, asset_states):
+	''' Put endopegnous policy on grid
+	Allocates points in between grid points to both grid points by putting fraction 
+	alpha above, and 1 - alpha below. 
+	alpha = (a_up - pol) /(a_up - a_down)
+	'''
+	
+
+	policy_ix_up = []
+	alpha_list = []
+	for pol in policy:
+		nearest_ix = np.argmin(np.abs(pol - asset_states)) # takes closest value
+		
+		rounded_down = pol > asset_states[nearest_ix]
+		if rounded_down:
+			closest_above = nearest_ix + 1
+			closest_below = nearest_ix
+		if not rounded_down:
+			closest_above = nearest_ix
+			closest_below = nearest_ix - 1
+		policy_ix_up.append(closest_above)
+		if closest_above > 0:
+			alpha =  (asset_states[closest_above] - pol)/(asset_states[closest_above] - asset_states[closest_below])
+			alpha_list.append(alpha)
+			continue
+		alpha_list.append(1.0)
+		
+	return(policy_ix_up, alpha_list)
 
 @jit(nopython=True)
 def mu_cons(consumption, risk_aver):
@@ -291,20 +316,20 @@ def egm_update(policy_guess, P, rate, wage, tax, labor, mu, risk_aver, disc_fact
 
 	return(policy_mat)
 
-@jit(nopython = True)
-def get_transition_matrix(Q, policy, state_grid):
+#@jit(nopython = True)
+def get_transition_matrix(Q, policy_ix_up, alpha_list, state_grid):
 	''' From the overall transition matrix, return the transition matrix based on how agents choose. I.e. subset the action that is chosen, keeping all transitions, for each state
 
 	Compared to quantecons version
 	mc = qe.MarkovChain(P)
 	mc.stationary_distributions 
+	TODO: handle zeros
 	'''
-
 	P = []
 	for state in range(len(state_grid)):
-		transitions = Q[state,policy[state],:]
+		
+		transitions = Q[state, policy_ix_up[state], :] * alpha_list[state] +  Q[state, policy_ix_up[state] -1, :] * (1 - alpha_list[state])
 		P.append(transitions)
-	
 	return(P)
 
 def get_distribution(P):
@@ -322,8 +347,12 @@ def get_distribution(P):
 	return(np.squeeze(vector))
 
 @jit(nopython=True, parallel = True)
-def get_distribution_iterate(distr_guess, P, state_grid, tol = 1e-8):
+def get_distribution_iterate(distr_guess, P, state_grid, tol = 1e-10):
 	''' Find ergodic distribution from a transition matrix
+
+	Note: it works but even with Numba is actually slower than finding the Eigen vector associated with the unit Eigen value
+
+	Jonas pointed out that precision matters and that he used 1e-10.
 
 	Input:
 		distr_guess : numpy array of shape (len(state_grid),)
@@ -361,14 +390,25 @@ def objective_function(rate_guess, market_object):
 
 	policy = solve_hh(market_object.P, rate_guess, market_object.wage, market_object.tax, market_object.L_tilde, market_object.mu, market_object.gamma, market_object.beta,market_object.delta, market_object.state_grid, market_object.asset_states)
 
-	P = get_transition_matrix(market_object.Q, nb.typed.List(policy), market_object.state_grid)
-	P = np.asarray(P) # P.shape = (2000, 2000) = (#states X #states)
-	
-	#distr = get_distribution(P) # TODO: different guess
-	distr_guess = np.full(market_object.state_grid.shape, 1)/len(market_object.state_grid)
-	distr = get_distribution_iterate(distr_guess, P, market_object.state_grid)
+	policy_ix_up, alpha_list = policy_to_grid(policy, market_object.asset_states)
 
-	K_HH =  distr @ market_object.asset_states[policy]
+	P = get_transition_matrix(market_object.Q, nb.typed.List(policy_ix_up), nb.typed.List(alpha_list), market_object.state_grid)
+	P = np.asarray(P) # P.shape = (2000, 2000) = (#states X #states)
+
+	assert np.all(np.isclose(np.sum(P, axis = 1), 1)), "P is not a transition matrix"
+	
+	try:
+		distr = get_distribution(P)
+	except:
+		ipdb.set_trace()
+	#distr_guess = np.full(market_object.state_grid.shape, 1)/len(market_object.state_grid)
+	#distr = get_distribution_iterate(distr_guess, P, market_object.state_grid)
+
+	alpha_array = np.asarray(alpha_list)
+	policy_ix_up_array = np.asarray(policy_ix_up)
+	savings = market_object.asset_states[policy_ix_up_array] * alpha_array + market_object.asset_states[policy_ix_up_array - 1] * (1 - alpha_array)
+
+	K_HH =  distr @ savings #/ (1+ rate_guess - market_object.delta)
 
 	loss = (market_object.K - K_HH)**2
 	print(market_object.K - K_HH)
@@ -394,17 +434,22 @@ steady_state = Market(
 	sigma = 0.007,
 	a_size = 1000) # 1000
 
-
 sol = minimize_scalar(objective_function, bounds=(0.03, 0.04), method='bounded', args = steady_state)
-rate_ss = sol.x
+#rate_ss = sol.x
 
 rate_ss = 0.034372948575014266 
+rate_ss = 0.034373827436522834 # When dividing with 1 + r - delta
+rate_ss = 0.033691519519942384 # When not forcing assets to one grid point, but two. 
 steady_state.set_prices(rate_ss)
 steady_state.K
 policy = solve_hh(steady_state.P, rate_ss, steady_state.wage, steady_state.tax, steady_state.L_tilde, steady_state.mu, steady_state.gamma, steady_state.beta,steady_state.delta, steady_state.state_grid, steady_state.asset_states)
 # Found steady state capital: 39.2538 with 1000 grid points
 # sol.x = 0.03437
 policy_ss = steady_state.asset_states[policy].reshape(2,-1)
+P_ss = get_transition_matrix(steady_state.Q, nb.typed.List(policy), steady_state.state_grid)
+P_ss = np.asarray(P_ss)
+distr_guess = np.full(steady_state.state_grid.shape, 1)/len(steady_state.state_grid)
+distr = get_distribution_iterate(distr_guess, P_ss, steady_state.state_grid)
 
-objective_function(rate_ss, steady_state)
+#objective_function(rate_ss, steady_state)
 
