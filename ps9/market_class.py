@@ -1,4 +1,4 @@
-
+import quantecon as qe
 import numpy as np
 from numba import jit, prange
 
@@ -20,6 +20,7 @@ class	Market:
 		rho = 0.95,
 		sigma = 0.007,
 		a_size = 1000):
+		mc = qe.MarkovChain(P)
 		self.r = r
 		self.hh_panel = hh_panel
 		self.gamma = gamma # Risk aversion
@@ -32,10 +33,10 @@ class	Market:
 		self.sigma = sigma # TODO: what does he mean?
 		self.rho = rho
 		self.T = T
-		self.unemployment_rate = 1 - np.mean(hh_panel) # series of unemployment
+		self.unemployment_rate = mc.stationary_distributions[0][0]
 		self.L_tilde = 1 / ( 1 - self.unemployment_rate) # How much they work, given that they work. Implies L = 1
 		self.L = 1
-		self.A = 1 # TODO: make general
+		self.A = 1 
 		self.capital_from_r()
 		self.s_size = 2 * a_size # Number of states (TODO employed unemployed X num assets)
 		self.a_size = a_size # number of actions
@@ -171,8 +172,6 @@ def assets_from_state(s, asset_grid):
 	state grid first has all unemployed all assets, then all employed and all assets again
 	'''
 	remainder = s % len(asset_grid)
-	if remainder == 0:
-		return(asset_grid[0])
-	assets = asset_grid[s % len(asset_grid)]
+	assets = asset_grid[remainder]
 	return(assets)
 

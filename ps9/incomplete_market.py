@@ -1,6 +1,6 @@
 
 import numpy as np
-from household_problem import solve_hh, policy_to_grid
+from household_problem import solve_hh, policy_to_grid, egm_update
 from distribution_funcs import get_transition_matrix, get_distribution_fast
 from mit_shock import solve_trans_path
 from market_class import Market
@@ -19,6 +19,7 @@ from scipy import optimize
 import scipy as sp
 from scipy import linalg
 from scipy.interpolate import griddata
+
 
 
 import warnings
@@ -80,13 +81,13 @@ steady_state = Market(
 	sigma = 0.007,
 	a_size = 1000) # 1000
 
-#sol = minimize_scalar(objective_function, bounds=(0.01, 0.04), method='bounded', args = steady_state)#, options={'xatol': 1e-12, 'maxiter': 500, 'disp': 0})
+sol = minimize_scalar(objective_function, bounds=(0.01, 0.04), method='bounded', args = steady_state)#, options={'xatol': 1e-12, 'maxiter': 500, 'disp': 0})
 
-#rate_ss = sol.x
-rate_ss = 0.022590438230091416
+rate_ss = sol.x
+#rate_ss = 0.022589966512929882
 print("The interest rate is:")
 print(sol.x)
-
+rate_ss = sol.x
 #objective_function(sol.x, steady_state)
 
 #rate_ss = 0.034372948575014266 
@@ -95,26 +96,23 @@ print(sol.x)
 steady_state.set_prices(rate_ss)
 steady_state.K
 
-policy = solve_hh(steady_state.P, rate_ss, steady_state.wage, steady_state.tax, steady_state.L_tilde, steady_state.mu, steady_state.gamma, steady_state.beta,steady_state.delta, steady_state.state_grid, steady_state.asset_states)
+policy_ss = solve_hh(steady_state.P, rate_ss, steady_state.wage, steady_state.tax, steady_state.L_tilde, steady_state.mu, steady_state.gamma, steady_state.beta,steady_state.delta, steady_state.state_grid, steady_state.asset_states)
 
-policy_ix_up, alpha_list = policy_to_grid(policy, steady_state.asset_states)
-policy_ss = policy_ix_up
+policy_ix_up, alpha_list = policy_to_grid(policy_ss, steady_state.asset_states) 
+
 P_ss = get_transition_matrix(steady_state.Q, nb.typed.List(policy_ix_up), nb.typed.List(alpha_list), steady_state.state_grid)
 P_ss = np.asarray(P_ss)
-
-
 distr_guess = np.full(steady_state.state_grid.shape, 1)/len(steady_state.state_grid)
 distr = get_distribution_fast(distr_guess, P_ss, steady_state.state_grid)
 
-objective_function(rate_ss, steady_state)
-
 ss = steady_state
-T = 500
-K_guess = np.repeat(ss.K, T+1)
-policy_ss = np.reshape(np.asarray(policy_ss), (2, 1000))
-policy_ss = ss.asset_states[policy_ss]
 
-K_sol, K_HH_evol, tfp_seq, T = solve_trans_path(ss, T, distr, policy_ss, K_guess)
+#ss.set_tfp(1, 75.63617405185936)
+T = 400
+K_guess = np.repeat(ss.K, T+1)
+
+policy_ss = np.reshape(np.asarray(policy_ss), (2, 1000), order = "C")
+K_sol, K_HH_evol, tfp_seq, T, rate_path, wage_path = solve_trans_path(ss, T, distr, policy_ss, K_guess)
 
 
 K_sol.shape
@@ -159,5 +157,10 @@ fig.show()
 
 	tmp = np.linspace(0,10,10)
 	np.insert(tmp, 0, 1000)
+
+get_distribution(P)
+
+
+
 
 

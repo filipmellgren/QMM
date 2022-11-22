@@ -11,6 +11,8 @@ from scipy import linalg
 def get_transition_matrix(Q, policy_ix_up, alpha_list, state_grid):
 	''' From the overall transition matrix, return the transition matrix based on how agents choose. I.e. subset the action that is chosen, keeping all transitions, for each state
 
+	alpha_list : list of fractions saying what amount goes to point on grid above. For borrowing constraint, alpha = 1.
+
 	Compared to quantecons version
 	mc = qe.MarkovChain(P)
 	mc.stationary_distributions 
@@ -18,7 +20,6 @@ def get_transition_matrix(Q, policy_ix_up, alpha_list, state_grid):
 	'''
 	P = []
 	for state in range(len(state_grid)):
-		
 		transitions = Q[state, policy_ix_up[state], :] * alpha_list[state] +  Q[state, policy_ix_up[state] -1, :] * (1 - alpha_list[state])
 		P.append(transitions)
 	return(P)
