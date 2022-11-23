@@ -50,7 +50,7 @@ def policy_to_grid(policy, asset_states):
 	for pol in policy:
 		nearest_ix = np.argmin(np.abs(pol - asset_states)) # takes closest value
 		nearest_ix_list.append(nearest_ix)
-		rounded_down = pol > asset_states[nearest_ix]
+		rounded_down = pol >= asset_states[nearest_ix]
 		if rounded_down:
 			closest_above = nearest_ix + 1
 			closest_below = nearest_ix
@@ -59,11 +59,16 @@ def policy_to_grid(policy, asset_states):
 			closest_below = nearest_ix - 1
 		policy_ix_up.append(closest_above)
 		if closest_above > 0:
-			alpha =  (asset_states[closest_above] - pol)/(asset_states[closest_above] - asset_states[closest_below])
-			alpha_list.append(alpha)
+			try:
+				alpha =  (asset_states[closest_above] - pol)/(asset_states[closest_above] - asset_states[closest_below])			
+				alpha_list.append(alpha)
+			except IndexError:
+				alpha_list.append(0.0)
 			continue
-		alpha_list.append(1.0)
-		
+		alpha_list.append(0.0)
+	policy_ix_up = np.asarray(policy_ix_up)
+	policy_ix_up[policy_ix_up >= len(asset_states)] = len(asset_states) - 1
+	
 	return(policy_ix_up, alpha_list)
 
 @jit(nopython=True)

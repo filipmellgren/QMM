@@ -2,7 +2,7 @@
 import numpy as np
 from numba import jit, prange
 import numba as nb
-
+import ipdb
 
 import scipy as sp
 from scipy import linalg
@@ -20,7 +20,7 @@ def get_transition_matrix(Q, policy_ix_up, alpha_list, state_grid):
 	'''
 	P = []
 	for state in range(len(state_grid)):
-		transitions = Q[state, policy_ix_up[state], :] * alpha_list[state] +  Q[state, policy_ix_up[state] -1, :] * (1 - alpha_list[state])
+		transitions = Q[state, policy_ix_up[state], :] * (1-alpha_list[state]) +  Q[state, policy_ix_up[state] -1, :] * (alpha_list[state])
 		P.append(transitions)
 	return(P)
 
@@ -60,6 +60,7 @@ def get_distribution_iterate(distr_guess, P, state_grid, tol = 1e-8):
 	
 	diff = 100.0
 	while diff > tol:
+
 		diff = 0.0
 		lambdap = np.full(lambd.shape, 0.0)
 		for state_next in prange(len(state_grid)):
@@ -78,9 +79,9 @@ def get_distribution_iterate(distr_guess, P, state_grid, tol = 1e-8):
 
 
 @jit(nopython=True, parallel = True)
-def get_distribution_fast(distr_guess, P, state_grid, tol = 1e-10):
+def get_distribution_fast(distr_guess, P, state_grid, tol = 1e-12):
 	''' Find ergodic distribution from a transition matrix.
-	
+	NOTE: works with a GOOD initial guess. Uniform wont cut it.
 	Jonas pointed out that precision matters and that he used 1e-10.
 
 	This version does parallelization, matrix multiplication, and 
@@ -98,7 +99,6 @@ def get_distribution_fast(distr_guess, P, state_grid, tol = 1e-10):
 
 	'''
 	lambd = np.copy(distr_guess) # 2000 vector that sums to one
-	
 	diff = 100.0
 	iteration = 0
 	while diff > tol:
@@ -113,3 +113,5 @@ def get_distribution_fast(distr_guess, P, state_grid, tol = 1e-10):
 			diff = np.max(np.abs(lambdap - lambd))
 		lambd = np.copy(lambdap)
 	return(lambd)
+
+

@@ -6,7 +6,6 @@ class	Market:
 	''' Store data and parameterize the incomplete markets economy with aggregate risks
 	'''
 	def __init__(self, 
-		hh_panel,
 		r = 0.02,
 		gamma = 2, # CRRA parameter
 		beta = 0.99, # Discount factor
@@ -22,7 +21,6 @@ class	Market:
 		a_size = 1000):
 		mc = qe.MarkovChain(P)
 		self.r = r
-		self.hh_panel = hh_panel
 		self.gamma = gamma # Risk aversion
 		self.beta = beta # Discount factor
 		self.P = P
@@ -43,24 +41,35 @@ class	Market:
 		self.R = np.empty((self.s_size, self.a_size))
 		self.Q = np.zeros((self.s_size, self.a_size, self.s_size))
 		self.state_grid = np.asarray(range(2*a_size))
-		self.capital_from_r()
 		self.get_wage()
 		self.get_tax_rate()
 		self.build_R() 
 		self.build_Q()
 	
 	def capital_from_r(self):
+		''' Capital Demanded, given interest rate.
+		'''
+		# TODO: Should somethiing else be updated?
+
 		self.K = (self.r/(self.alpha * self.A))**(1/(self.alpha - 1)) * self.L
+		
 
 	def r_from_capital(self):
+		''' Interest firms can pay, given capital levels
+		'''
 		self.r = self.alpha * self.A * self.K**(self.alpha - 1) * self.L**(1- self.alpha)
 
 	def set_tfp(self, new_tfp, K):
 		''' Shock TFP, guessing new value of K
 		Updating K triggers an updating of prices, and therefore also capital
+		TODO: should this happen instantaneously though?
+		TODO: K is not needed as an argument. It is taken as given when TFP updates and doesn't respond to tfp.
 		'''
 		self.A = new_tfp
-		self.set_capital(K)
+		self.r_from_capital()
+		self.get_wage()
+		self.build_R()
+		# self.set_capital(K)
 	
 	def get_wage(self):
 		self.wage = (1 - self.alpha) * self.A * self.K**self.alpha * self.L**(-self.alpha)
@@ -174,4 +183,88 @@ def assets_from_state(s, asset_grid):
 	remainder = s % len(asset_grid)
 	assets = asset_grid[remainder]
 	return(assets)
+
+def analytical_jacobians():
+	''' Derivatives of r_(s+1) and w_(s+1) wrt K_s and Z_s
+	Remember: r_s+1 and w_s+1 are just marginal products wrt capital and labor
+	pi * l = 1 in our example, normalized hours worked.
+	'''
+	pi_l = 1
+	drdk = alpha * (alpha - 1) * tfp_ss * (K_ss/ (pi_l))**(alpha - 2)
+	dwdk = (1-alpha) * alpha * tfp_ss * (K_ss/ (pi_l))**(alpha - 1)
+	drdz = alpha * K_ss**(alpha-1) * pi_l**(1-alpha)
+	dwdz = (1-alpha) * K**alpha * pi_l **(-alpha)
+	return(drdk, dwdk, drdz, dwdz)
+
+
+
+def get_dY_t(policy_ss, distr_ss):
+	'''
+	Y_t in our case is savings at time t
+	'''
+	P_t = np.empty((T)) # Prediction vector
+	for ix in range(T):
+		P_t[ix] = np.sum(policy_ss, (distr_ss.T)**(ix))
+	
+	dD = np.empty((S))
+
+
+	dY = np.empty((T)) 
+	for t in range(T):
+		for s in range(S):
+			if s > t:
+				dY[t] = 0 # TODO: can be made faster
+				continue
+			dY[t] = P[t-s] * dD[s]
+
+		pass
+	pass
+
+def fake_news_matrix(T, S, Y_cal, P_cal, D_cal):
+	''' Construct the fake news matrix
+	See slide 18 from lecture for definition of caligraphuic letters
+	INPUT
+		Y_cal : is a numpy array such that dY_t = Y_cal_(s-t), i.e. change in Y at t which is dy_t'D_ss (change in each individual's y holding distribution fixed at ss levels)
+	'''
+	F = np.empty((T,S))
+	for t in range(T):
+		for s in range(S):
+			if t == 0:
+				F[t, s] = Y_cal[s]
+				continue
+			F[t, s] = P_cal[t-1].T @ D_cal[s]  
+	return(F)
+
+def capital_jacobians(fake_news):
+	''' Jacobian of the capital function wrt r_s and w_s
+	No analytical solution to this one. 
+	It is the derivative of household savings wrt r_s and w_s
+	'''
+	J = np.copy(fake_news.shape)
+	T = J.shape[0]
+	S = J.shape[1]
+	
+	for t in range(start = 1, stop = T):
+		for s in range(start = 1, stop = S):
+			J[t, s] += J[t-1, s-1]	
+	return(J)
+	
+
+
+
+
+
+
+
+def ir_K():
+	''' Change in K wrt z,. the impulse response
+
+	'''
+	H_K_inv = np.linalg.inv(H_K)
+	dK = - H_K_inv @ H_Z @ dZ # Impulse response
+	pass
+
+
+
+
 

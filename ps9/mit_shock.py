@@ -6,23 +6,18 @@ import numba as nb
 import ipdb
 
 # Solve for transition path to small shock (e.g. TFP) imposing market clearing
-def solve_trans_path(ss, T, distr0, policy_ss, K_guess):
+def solve_trans_path(ss, T, distr0, policy_ss, tfp, K_guess):
 	# TODO: policy 'slides down', so try a larger shock that offsets this effect an decrrease time horizon (less time to slide down) Tested T = 400 and 0.025 shock
 	K0 = ss.K 
 	diff = 100
-	tol = 1e-6
+	tol = 1e-4
 	weight = 1e-1
-	
-	shock = 0.025
-	tfp =  1 + shock * 0.95**np.linspace(0,T, T) 
-	tfp = np.insert(tfp, 0, 1)
-	tfp[-1] = 1
-	
+		
 	n_iters = 0
 
 	K_HH_list = []
 
-	while diff > tol and n_iters < 50:
+	while diff > tol and n_iters < 200:
 		n_iters += 1
 
 		# Solve the value function/household policy backwards
@@ -38,6 +33,7 @@ def solve_trans_path(ss, T, distr0, policy_ss, K_guess):
 
 		assert np.all(np.isclose(np.sum(np.asarray(distr), axis = 1), 1)), "Summing wrong axis"
 
+		# Capital demand:
 		K_HH = np.sum(np.asarray(flat_pols) * np.asarray(distr), axis = 1)
 		K_HH = K_HH[0:T] # HH savings in period t that should correspond to firm assets in period t+1
 
@@ -45,12 +41,15 @@ def solve_trans_path(ss, T, distr0, policy_ss, K_guess):
 
 		# Check max difference 
 		diff_array = K_HH - K_guess[1:T+1]
+		#diff_array = K_HH - K_guess
 		diff = np.max(diff_array)**2
 		diff_ix = np.argmax(np.abs(diff_array))
 		
 		# Update guess for K
 		K_guess = (1- weight) * K_guess[1:T+1] + (weight) * K_HH
 		K_guess = np.insert(K_guess, 0, K0)
+		#K_guess = (1- weight) * K_guess + (weight) * K_HH
+
 		print((diff_array[diff_ix], weight))
 		weight = np.maximum(weight*1, 1e-5)
 
@@ -71,13 +70,15 @@ def backward_iterate_policy(tfp, K_guess, policy_ss, T, ss):
 		
 		tfp_t = tfp[time] # First 'time' is T-1
 		K_t = K_guess[time]
-		ss.set_tfp(tfp_t, K_t)
+		ss.K = K_t # K is endogenous (from guess). Need to find fixed point st markets clear.
+		ss.set_tfp(tfp_t, K_t) # Set A exogenously
 		rate = ss.r
 		wage = ss.wage
 		
 		policy_prev = policy_list[-1]
-		# TODO: it seems egm_update is not at a fixed point. policy_prev != policy_t when all other input are as in steady state
+
 		policy_t = egm_update(policy_prev, ss.P, rate, rate_fut, wage, wage_fut, ss.tax, ss.L_tilde, ss.mu, ss.gamma, ss.beta, ss.delta, ss.state_grid, ss.asset_states) # Can use egm_update, do not iterate on it
+
 		policy_list.append(policy_t)
 		rate_fut = np.copy(rate)
 		wage_fut = np.copy(wage)
@@ -105,7 +106,8 @@ def forward_iterate_distribution(policy, distr0, T, ss):
 		policy_t_ix, alpha_list = policy_to_grid(policy_t.flatten(), ss.asset_states)
 		P = get_transition_matrix(ss.Q, nb.typed.List(policy_t_ix), nb.typed.List(alpha_list), ss.state_grid) 
 		P = np.asarray(P)
-		distr_t = get_distribution_fast(distr_list[-1], P, ss.state_grid, tol = 1e-10)
+		distr_t = get_distribution_fast(distr_list[-1], P, ss.state_grid, tol = 1e-12)
+		#distr_t = get_distribution(P)
 	
 		distr_list.append(distr_t)
 	distr = np.asarray(distr_list)
