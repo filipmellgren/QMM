@@ -58,7 +58,7 @@ def sim_hh_panel(P, T, N_hh):
 	return(np.asarray(hh_list))
 
 P = np.array([[0.47, 0.53], [0.04, 0.96]])
-	
+
 steady_state = Market(
 	r = 0.035,
 	gamma = 2, # CRRA parameter
@@ -74,7 +74,7 @@ steady_state = Market(
 	sigma = 0.007,
 	a_size = 1000) # 1000
 
-sol = minimize_scalar(objective_function, bounds=(0.01, 0.04), method='bounded', args = steady_state)
+sol = minimize_scalar(objective_function, bounds=(0.03, 0.04), method='bounded', args = steady_state)
 
 rate_ss = sol.x
 
@@ -87,14 +87,12 @@ policy_ix_up, alpha_list = policy_to_grid(policy_ss, steady_state.asset_states)
 P_ss = get_transition_matrix(steady_state.Q, nb.typed.List(policy_ix_up), nb.typed.List(alpha_list), steady_state.state_grid)
 P_ss = np.asarray(P_ss)
 
-distr_guess = get_distribution(P_ss)
-distr = get_distribution_fast(distr_guess, P_ss, steady_state.state_grid)
-
-distr2 = get_distribution(P_ss)
+distr = get_distribution(P_ss)
+#distr = get_distribution_fast(distr_guess, P_ss, steady_state.state_grid)
 
 ss = steady_state
 
-# MIT Shocks #####################
+# MIT Shocks, BKM #####################
 T = 150
 shock = 0.05
 tfp =  1 + shock * 0.95**np.linspace(0,T, T) 
@@ -116,8 +114,26 @@ df["iter"] = df.index
 
 df2 = pd.melt(df, id_vars = "iter", var_name = "time", value_name = "K")
 df2["iter"] = df2["iter"].astype(float)
+time_array = np.linspace(start = 0, stop = len(tfp_seq)-2, num = len(tfp_seq)-1).astype("int")
 
-fig = px.scatter(df2, x="time", y="K", color = "iter", color_continuous_scale=px.colors.sequential.Viridis, title = "Evolution of Household savings")
+
+from plotly.subplots import make_subplots
+import plotly.graph_objects as go
+import plotly.io as pio
+pio.templates.default = "plotly_white"
+
+fig = make_subplots(rows=3, cols=1, subplot_titles=("Hosehold saving training dynamics", "TFP shock path", "Interest path"), shared_xaxes=True)
+fig.append_trace(go.Scatter(x = df2["time"], y = df2["K"], mode='markers',
+    marker=dict(color=df2["iter"])), row = 1, col = 1 )
+fig.append_trace(go.Scatter(x = time_array, y = tfp_seq), row = 2, col = 1)
+fig.append_trace(go.Scatter(x = time_array, y = rate_path), row = 3, col = 1)
+
+fig.show()
+fig.write_image("figures/training_dynamics.png")
+
+np.min(time_array)
+
+fig1 = px.scatter(df2, x="time", y="K", color = "iter", color_continuous_scale=px.colors.sequential.Viridis, title = "Evolution of Household savings")
 
 fig.show()
 fig.write_image("figures/k_path.png")

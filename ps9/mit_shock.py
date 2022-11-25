@@ -7,9 +7,11 @@ import ipdb
 
 # Solve for transition path to small shock (e.g. TFP) imposing market clearing
 def solve_trans_path(ss, T, distr0, policy_ss, tfp, K_guess):
-	# TODO: policy 'slides down', so try a larger shock that offsets this effect an decrrease time horizon (less time to slide down) Tested T = 400 and 0.025 shock
+	''' BKM algorithm for solving for transition path following shock in TFP.
+
+	'''
 	K0 = ss.K 
-	diff = 100
+	loss = 100
 	tol = 1e-4
 	weight = 1e-1
 		
@@ -17,43 +19,48 @@ def solve_trans_path(ss, T, distr0, policy_ss, tfp, K_guess):
 
 	K_HH_list = []
 
-	while diff > tol and n_iters < 200:
+	while loss > tol and n_iters < 200:
 		n_iters += 1
 
-		# Solve the value function/household policy backwards
 		policy, rate_path, wage_path = backward_iterate_policy(tfp, K_guess, policy_ss, T, ss)
 		
-		# From SS, solve forward using policy functions and idiosyncratic Markov process
 		distr = forward_iterate_distribution(policy, distr0, T, ss)
 		
-		# Calculate capital supplied at each point in time
-		flat_pols = []
-		for pol in policy:
-			flat_pols.append(pol.flatten())
+		K_HH = K_supply(policy, distr, T)
+		K_HH_list.append(K_HH) 
 
-		assert np.all(np.isclose(np.sum(np.asarray(distr), axis = 1), 1)), "Summing wrong axis"
-
-		# Capital demand:
-		K_HH = np.sum(np.asarray(flat_pols) * np.asarray(distr), axis = 1)
-		K_HH = K_HH[0:T] # HH savings in period t that should correspond to firm assets in period t+1
-
-		K_HH_list.append(K_HH)
-
-		# Check max difference 
+		# Check loss function
 		diff_array = K_HH - K_guess[1:T+1]
-		#diff_array = K_HH - K_guess
-		diff = np.max(diff_array)**2
-		diff_ix = np.argmax(np.abs(diff_array))
-		
-		# Update guess for K
+		loss = np.max(diff_array)**2
+				
+		# Update capital demand guess
 		K_guess = (1- weight) * K_guess[1:T+1] + (weight) * K_HH
 		K_guess = np.insert(K_guess, 0, K0)
-		#K_guess = (1- weight) * K_guess + (weight) * K_HH
 
-		print((diff_array[diff_ix], weight))
 		weight = np.maximum(weight*1, 1e-5)
 
 	return(K_guess, K_HH_list, tfp, T, rate_path, wage_path)
+
+def K_supply(policy, distr, T):
+	''' Find capital supplu from policy and distritbution of households
+	
+	Ensure distribution and policy are setup in a way such that the right mass coprresponds to the right policy.
+
+	INPUT
+	policy : is a numpy array of dimensions number of states not related to assets X number of possible asset states X T. It is flattened to work with the array. Interpret as one policy for each state in each period.
+	distr : is a numpy array of dimensions total number of states X T. 
+
+	OUTPUT
+	K_HH : A numpy array of capital supplied for each t in T.
+
+	'''
+	flat_pols = []
+	for pol in policy:
+		flat_pols.append(pol.flatten())
+
+	K_HH = np.sum(np.asarray(flat_pols) * np.asarray(distr), axis = 1)
+	K_HH = K_HH[0:T] # HH savings in period t that should correspond to firm assets in period t+1
+	return(K_HH)
 
 
 def backward_iterate_policy(tfp, K_guess, policy_ss, T, ss):
