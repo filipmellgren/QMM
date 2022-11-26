@@ -30,8 +30,7 @@ def solve_trans_path(ss, T, distr0, policy_ss, tfp, K_guess):
 		K_HH_list.append(K_HH) 
 
 		# Check loss function
-		diff_array = K_HH - K_guess[1:T+1]
-		loss = np.max(diff_array)**2
+		loss = np.max(K_HH - K_guess[1:T+1])**2
 				
 		# Update capital demand guess
 		K_guess = (1- weight) * K_guess[1:T+1] + (weight) * K_HH
@@ -39,7 +38,7 @@ def solve_trans_path(ss, T, distr0, policy_ss, tfp, K_guess):
 
 		weight = np.maximum(weight*1, 1e-5)
 
-	return(K_guess, K_HH_list, tfp, T, rate_path, wage_path)
+	return(K_guess, K_HH_list, tfp, T, rate_path, wage_path, policy, distr)
 
 def K_supply(policy, distr, T):
 	''' Find capital supplu from policy and distritbution of households
@@ -104,6 +103,13 @@ def forward_iterate_distribution(policy, distr0, T, ss):
 	''' Forward iterate to find ergodic distributions
 	This function is kind of slow compared to the backward iteration.
 	distr_guess : a guess for the distribution. A good guess is the distribution from a previous iteration. Is a list of length T.
+
+	TODO: Don't need to iterate on the distribution. Instead, use following algorithm:
+	* For each income state, 
+	* For each k
+	* we know their policy of savings. 2 by 1000 matrix, income states x asset states
+	* Multply new matrix with little p transpose: P'D = 2 by 1000 distribution matrix.
+
 	'''
 	
 	distr_list = [distr0]
@@ -121,4 +127,133 @@ def forward_iterate_distribution(policy, distr0, T, ss):
 	return(distr)
 
 
+# FAKE NEWS APPROACH
+def analytical_jacobians():
+	''' Derivatives of r_(s+1) and w_(s+1) wrt K_s and Z_s
+	Remember: r_s+1 and w_s+1 are just marginal products wrt capital and labor
+	pi * l = 1 in our example, normalized hours worked.
+	'''
+	pi_l = 1
+	drdk = alpha * (alpha - 1) * tfp_ss * (K_ss/ (pi_l))**(alpha - 2)
+	dwdk = (1-alpha) * alpha * tfp_ss * (K_ss/ (pi_l))**(alpha - 1)
+	drdz = alpha * K_ss**(alpha-1) * pi_l**(1-alpha)
+	dwdz = (1-alpha) * K**alpha * pi_l **(-alpha)
+	return(drdk, dwdk, drdz, dwdz)
+
+@jit(nopython=True, parallel = False)
+def get_prediction_vectors(P_ss, y_ss, T):
+	''' Get prediciton vectors P_u for all u with one transpose forward iteration
+	This is a slow function
+	See slide 19
+
+	u is time until shock. So u = 0 is day of shock, u = 1 is date T - 1, so day before, etc.
+
+	The steady state transition matrix P_ss gets raised to power u.
+
+	P_ss is a sparse "n by n" matrix, where "n" is the total number of states, depending on both the initial individual state transition matrix (usually a small matrix), and the policies individuals make telling us how they traverse the state distribution.
+
+	y_ss is an R^n vector. We can view this as the asset savings policy in steady state.
+
+	Each prediction vector is an R^n object, so Pu is a T by n 
+
+	INPUT
+	P_ss : numpy array of overall transition matrix
+	y_ss : numpy array of policies in steady state 2000 vector
+
+	OUTPUT
+	Pu : T by n array of prediciton vectors, T such vectors of length n.
+	'''
+	n = y_ss.shape[0]
+	
+	Pu = []
+	P_poweru = P_ss
+	for u in range(T):
+		P_poweru = P_poweru @ P_ss
+		Pu.append(P_poweru @ y_ss) # (n by n) @ (n by 1) = (n by 1)
+
+	return(Pu)
+
+@jit(nopython=True, parallel = False)
+def fake_news_matrix(curlyP, curlyD, curlyY, T, S):
+	''' Construct the fake news matrix
+	See slide 18 from lecture for definition of caligraphuic letters
+	INPUT
+		curlyY : is a numpy array such that dY_t = Y_cal_(s-t), i.e. change in Y at t which is 				dy_t'D_ss (change in each individual's y holding distribution fixed at ss levels)
+		curlyP is the matrix of prediction vectors
+		curlyD : is a list of distribution arrays
+	'''
+	
+	F = np.zeros((T,S))
+	
+	for t in range(T):
+		for s in range(0, S, 1): 
+			if t == 0:
+				F[t, s] = curlyY[s]
+				continue
+			F[t, s] = np.vdot(curlyP[t-1,:].T, curlyD[s,:])  # TODO: should first or last D be taken away?
+	return(F)
+
+@jit(nopython=True, parallel = False)
+def capital_jacobian(fake_news):
+	''' Jacobian of the capital function wrt a variable depending on the fake_news matrix
+	Could be r_s or w_s, for example
+	No analytical solution to this derivative, why we use this approach. 
+	
+	See Eq (3) slide 21 for definition.
+	'''
+	J = np.copy(fake_news)
+	T = J.shape[0]
+	S = J.shape[1]
+	
+	for t in range(1,T, 1):
+		for s in range(1, S, 1):
+			J[t, s] += J[t-1, s-1]
+	return(J)
+
+def get_jacobians(T, P_ss, y_ss, curlyD, policy):
+	''' Get the Jacobian matrix numerically
+
+	'''
+	# STEP 1: Backward iterate for each input i and get Dcal_u^i
+	curlyY = np.empty(T)
+	for s in range(T):
+		# slide 18 or 19
+		curlyY[s] = np.vdot(curlyD[0], (policy[s] - policy_ss).flatten())
+	
+	# STEP 2: Forward iterate for each output o and get prediction/expectation vectors
+	curlyP = get_prediction_vectors(P_ss, policy_ss.flatten(), T) # TODO only until T-2 needed? Yes, curlyY is used otherwise
+	curlyP = np.asarray(curlyP)
+	
+	# STEP 3: For each o, i, combine Ycal_u^(o,i) with matrix product of Pcal^o.T and Dcal^i to get fake news matrix F^(o,i)
+		# curlyP is the matrix of prediction vectors
+		# curlyD is the distribution matrix
+	F = fake_news_matrix(curlyP, curlyD, curlyY, T, T)
+
+	# STEP 4: Construct Jacobian from Fake news matrix.
+	J = capital_jacobian(F)
+	return(F, J)
+
+
+F, J = get_jacobians(150, P_ss, policy_ss, distr, policy)
+
+fig = px.imshow(F)
+fig.show()
+
+import matplotlib.pyplot as plt
+fig = plt.plot(J[:40, [0, 10, 20]])
+plt.savefig('figures/J_shock.png')
+
+J[0:40,:]
+J.shape
+
+px.lineplot(J[:40, [0, 10, 20]]
+
+
+def ir_K(H_K, H_Z, dZ):
+	''' Change in K wrt z,. the impulse response
+
+	'''
+	H_K_inv = np.linalg.inv(H_K)
+	dK = - H_K_inv @ H_Z @ dZ # Impulse response
+	pass
 

@@ -76,7 +76,8 @@ steady_state = Market(
 
 sol = minimize_scalar(objective_function, bounds=(0.03, 0.04), method='bounded', args = steady_state)
 
-rate_ss = sol.x
+rate_ss = sol.x # 0.0349
+#rate_ss = 0.0349
 
 steady_state.set_prices(rate_ss)
 
@@ -102,7 +103,7 @@ tfp[-1] = 1
 K_guess = np.repeat(ss.K, T+1) * tfp
 
 policy_ss = np.reshape(np.asarray(policy_ss), (2, 1000), order = "C")
-K_sol, K_HH_evol, tfp_seq, T, rate_path, wage_path = solve_trans_path(ss, T, distr, policy_ss, tfp, K_guess)
+K_sol, K_HH_evol, tfp_seq, T, rate_path, wage_path, policy, distr = solve_trans_path(ss, T, distr, policy_ss, tfp, K_guess)
 
 
 # Plots ##########################
