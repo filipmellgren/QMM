@@ -2,6 +2,7 @@ import numpy as np
 from household_problem import egm_update, policy_to_grid
 from distribution_funcs import get_transition_matrix, get_distribution, get_distribution_fast
 import numba as nb
+from numba import jit, prange
 # Solve for nonlinear steqady state. DOne!
 import ipdb
 
@@ -143,7 +144,7 @@ def analytical_jacobians():
 @jit(nopython=True, parallel = False)
 def get_prediction_vectors(P_ss, y_ss, T):
 	''' Get prediciton vectors P_u for all u with one transpose forward iteration
-	This is a slow function
+	
 	See slide 19
 
 	u is time until shock. So u = 0 is day of shock, u = 1 is date T - 1, so day before, etc.
@@ -181,6 +182,7 @@ def fake_news_matrix(curlyP, curlyD, curlyY, T, S):
 		curlyY : is a numpy array such that dY_t = Y_cal_(s-t), i.e. change in Y at t which is 				dy_t'D_ss (change in each individual's y holding distribution fixed at ss levels)
 		curlyP is the matrix of prediction vectors
 		curlyD : is a list of distribution arrays
+
 	'''
 	
 	F = np.zeros((T,S))
@@ -188,9 +190,9 @@ def fake_news_matrix(curlyP, curlyD, curlyY, T, S):
 	for t in range(T):
 		for s in range(0, S, 1): 
 			if t == 0:
-				F[t, s] = curlyY[s]
+				F[t, s] = curlyY[s] # TODO: seems go give weird resutls
 				continue
-			F[t, s] = np.vdot(curlyP[t-1,:].T, curlyD[s,:])  # TODO: should first or last D be taken away?
+			F[t, s] = np.vdot(curlyP[t-1,:].T, curlyD[s,:]) 
 	return(F)
 
 @jit(nopython=True, parallel = False)
@@ -210,15 +212,19 @@ def capital_jacobian(fake_news):
 			J[t, s] += J[t-1, s-1]
 	return(J)
 
-def get_jacobians(T, P_ss, y_ss, curlyD, policy):
+def get_jacobians(T, P_ss, y_ss, distr, policy, h):
 	''' Get the Jacobian matrix numerically
 
+	curlyD[s] is the one-period-ahead distribution at each horizon s
 	'''
 	# STEP 1: Backward iterate for each input i and get Dcal_u^i
+		# TODO: what is D1_noshock? THINK: the one period ahead distribution, assuming no shock hits the economy
+		# TODO: what is actually curlyD? Maybe one period ahead distribution?
+	curlyD = (distr[1:,] - distr[0]) / h
 	curlyY = np.empty(T)
 	for s in range(T):
 		# slide 18 or 19
-		curlyY[s] = np.vdot(curlyD[0], (policy[s] - policy_ss).flatten())
+		curlyY[s] = np.vdot(distr[0], (policy[s] - policy_ss).flatten()) / h
 	
 	# STEP 2: Forward iterate for each output o and get prediction/expectation vectors
 	curlyP = get_prediction_vectors(P_ss, policy_ss.flatten(), T) # TODO only until T-2 needed? Yes, curlyY is used otherwise
@@ -234,19 +240,8 @@ def get_jacobians(T, P_ss, y_ss, curlyD, policy):
 	return(F, J)
 
 
-F, J = get_jacobians(150, P_ss, policy_ss, distr, policy)
+#
 
-fig = px.imshow(F)
-fig.show()
-
-import matplotlib.pyplot as plt
-fig = plt.plot(J[:40, [0, 10, 20]])
-plt.savefig('figures/J_shock.png')
-
-J[0:40,:]
-J.shape
-
-px.lineplot(J[:40, [0, 10, 20]]
 
 
 def ir_K(H_K, H_Z, dZ):
@@ -255,5 +250,5 @@ def ir_K(H_K, H_Z, dZ):
 	'''
 	H_K_inv = np.linalg.inv(H_K)
 	dK = - H_K_inv @ H_Z @ dZ # Impulse response
-	pass
+	return(dK)
 

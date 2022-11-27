@@ -2,7 +2,7 @@
 import numpy as np
 from household_problem import solve_hh, policy_to_grid, egm_update
 from distribution_funcs import get_transition_matrix, get_distribution_fast, get_distribution
-from mit_shock import solve_trans_path
+from mit_shock import solve_trans_path, get_jacobians
 from market_class import Market
 
 from numba import jit, prange
@@ -76,8 +76,8 @@ steady_state = Market(
 
 sol = minimize_scalar(objective_function, bounds=(0.03, 0.04), method='bounded', args = steady_state)
 
-rate_ss = sol.x # 0.0349
-#rate_ss = 0.0349
+rate_ss = sol.x 
+#rate_ss = 0.03494711589289896
 
 steady_state.set_prices(rate_ss)
 
@@ -88,7 +88,7 @@ policy_ix_up, alpha_list = policy_to_grid(policy_ss, steady_state.asset_states)
 P_ss = get_transition_matrix(steady_state.Q, nb.typed.List(policy_ix_up), nb.typed.List(alpha_list), steady_state.state_grid)
 P_ss = np.asarray(P_ss)
 
-distr = get_distribution(P_ss)
+distr_ss = get_distribution(P_ss)
 #distr = get_distribution_fast(distr_guess, P_ss, steady_state.state_grid)
 
 ss = steady_state
@@ -96,15 +96,47 @@ ss = steady_state
 # MIT Shocks, BKM #####################
 T = 150
 shock = 0.05
-tfp =  1 + shock * 0.95**np.linspace(0,T, T) 
-tfp = np.insert(tfp, 0, 1)
-tfp[-1] = 1
 
-K_guess = np.repeat(ss.K, T+1) * tfp
 
 policy_ss = np.reshape(np.asarray(policy_ss), (2, 1000), order = "C")
-K_sol, K_HH_evol, tfp_seq, T, rate_path, wage_path, policy, distr = solve_trans_path(ss, T, distr, policy_ss, tfp, K_guess)
+#K_sol, K_HH_evol, tfp_seq, T, rate_path, wage_path, policy, distr = solve_trans_path(ss, T, distr, policy_ss, tfp, K_guess)
 
+def transpath(shock, T, ss, distr, policy_ss):
+
+	tfp =  1 + shock * 0.95**np.linspace(0,T, T) 
+	tfp = np.insert(tfp, 0, 1)
+	tfp[-1] = 1
+	K_guess = np.repeat(ss.K, T+1) * tfp
+
+	K_sol, K_HH_evol, tfp_seq, T, rate_path, wage_path, policy, distr = solve_trans_path(ss, T, distr, policy_ss, tfp, K_guess)
+
+	return(K_sol, K_HH_evol, tfp_seq, T, rate_path, wage_path, policy, distr)
+
+K_sol, K_HH_evol, tfp_seq, T, rate_path, wage_path, policy, distr = transpath(shock, T, ss, distr_ss, policy_ss)
+
+GDP = tfp_seq * K_sol**(ss.alpha)
+C = GDP[:-1] + K_sol[1:] - K_sol[:-1] * (1 + np.asarray(rate_path)[:-1] - ss.delta)
+
+
+def corr_var(a, b):
+	covmat = np.cov(a, b)
+	vara = covmat[0,0]
+	corr = covmat[0,1]/(np.sqrt(covmat[0,0] * covmat[1,1]))
+	return(corr, vara)
+
+Y_var = corr_var(GDP, tfp_seq)
+K_var = corr_var(K_sol, tfp_seq)
+C_var = corr_var(C, tfp_seq[:-1])
+
+varmat = np.around(np.asarray([Y_var, K_var, C_var]), 4)
+np.savetxt("figures/varmat.txt", varmat)
+
+
+
+
+
+# Auclert ########################
+F, J = get_jacobians(150, P_ss, policy_ss, distr, policy, h = 0.001)
 
 # Plots ##########################
 import pandas as pd
