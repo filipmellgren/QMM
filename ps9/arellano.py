@@ -7,6 +7,10 @@ import ipdb
 from numba import njit, int64, float64, prange
 from numba.experimental import jitclass
 
+import pandas as pd
+import plotly.express as px
+
+
 class Arellano_Economy:
   ''' Stores data and creates primitives for the Arellano economy.
   '''
@@ -59,13 +63,17 @@ def compute_q(v_c, v_d, q, params, arrays):
 	This function writes to the array q that is passed in as an argument.
 	'''
 	# Unpack 
-	β, _, r, _, _, _,_,_ = params
+	β, _, r, _, _, _,EV_shock,_ = params
 	P, y_grid, B_grid, _, _ = arrays
 	for B_idx in range(len(B_grid)):
 		for y_idx in range(len(y_grid)):
 			# Compute default probability and corresponding bond price
-			default_states = 1.0 * (v_c[B_idx, :] < v_d)
-   		delta = np.dot(default_states, P[y_idx, :]) 
+			if EV_shock:
+				outcome_values = 1 / (1 + np.exp(v_d - v_c[B_idx, :]))
+				delta = np.dot(outcome_values, P[y_idx, :])
+			if not EV_shock:
+				default_states = 1.0 * (v_c[B_idx, :] < v_d)
+   			delta = np.dot(default_states, P[y_idx, :]) 
     	q[B_idx, y_idx] = (1 - delta ) / (1 + r)
 
   return(q)
@@ -93,6 +101,7 @@ def T_d(y_idx, v_c, v_d, params, arrays):
 @njit
 def value_beginning(v_c, v_d, B_idx, EV_shock, prob):
 	if EV_shock:
+		prob = 1 / (1 + np.exp(v_d - v_c[B_idx, :]))
 		v = prob * v_c[B_idx, :] + (1 - prob) * v_d
 		return(v)
 		
@@ -183,34 +192,42 @@ def solve(model, tol=1e-8, max_iter=10_000):
   print(f"Terminating at iteration {current_iter}.")
   return(v_c, v_d, q, B_star)
 
+
+def plot_Arellano(Arellano_model, plot_title):
+	# Solve model:
+	v_c, v_d, q, B_star = solve(Arellano_model)
+
+	# Plot value functions
+	Vf = np.maximum(v_c, v_d) # Create upper envelope
+	df = pd.DataFrame(Vf, columns = ["low", "high"])
+	df["B"] = Basic_Arellano.B_grid
+	df = pd.melt(df, id_vars = "B", var_name = "income")
+	fig1 = px.line(df, x = "B", y = "value", color = "income", title = plot_title)
+
+	# Debt Laffer curve
+	df = pd.DataFrame(Arellano_model.B_grid[B_star]*q, columns = ["low", "high"])
+	df = pd.DataFrame(q, columns = ["low", "high"])
+	df["B"] = Arellano_model.B_grid 
+	df = pd.melt(df, id_vars = "B", var_name = "income")
+	fig2 = px.line(df, x = "B", y = "value", color = "income", title = plot_title)
+	return(fig1, fig2)
+
 Basic_Arellano = Arellano_Economy()
 
-v_c, v_d, q, B_star = solve(Basic_Arellano)
+fig1, fig2 = plot_Arellano(Basic_Arellano, "Basic Arellano")
+fig1.write_image("figures/basic_arellano.png")
+fig2.write_image("figures/basic_arellano_laffer.png")
 
-# Create upper envelope
-Vf = np.maximum(v_c, v_d)
+EV_Arellano = Arellano_Economy()
+EV_Arellano.EV_shock = True
 
-import pandas as pd
-import plotly.express as px
+fig3, fig4 = plot_Arellano(EV_Arellano, "EV Arellano")
 
-df = pd.DataFrame(Vf, columns = ["low", "high"])
-df["B"] = Basic_Arellano.B_grid
-df = pd.melt(df, id_vars = "B", var_name = "income")
+fig3.write_image("figures/EV_arellano.png")
+fig4.write_image("figures/EV_arellano_laffer.png")
 
-# Plot the 4 value functions
 
-fig = px.line(df, x = "B", y = "value", color = "income")
-fig.show()
 
-q
 
-# q is the discounted expected value of a promise to pay B next period (notation error?)
-df = pd.DataFrame(Basic_Arellano.B_grid[B_star]*q, columns = ["low", "high"])
-df = pd.DataFrame(q, columns = ["low", "high"])
-df["B"] = Basic_Arellano.B_grid 
-df = pd.melt(df, id_vars = "B", var_name = "income")
-fig = px.line(df, x = "B", y = "value", color = "income")
-fig.show()
 
-np.searchsorted(B_grid, 1e-10)
 
