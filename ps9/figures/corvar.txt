@@ -1,0 +1,9 @@
+\begin{tabular}{lrr}
+\toprule
+{} &  Corr TFP &     Var \\
+\midrule
+Y &    0.9546 &  0.0022 \\
+I &    0.1855 &  0.1642 \\
+C &    0.9751 &  0.0036 \\
+\bottomrule
+\end{tabular}

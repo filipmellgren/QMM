@@ -19,6 +19,7 @@ from scipy import optimize
 import scipy as sp
 from scipy import linalg
 from scipy.interpolate import griddata
+import pandas as pd
 
 
 
@@ -76,10 +77,12 @@ steady_state = Market(
 
 sol = minimize_scalar(objective_function, bounds=(0.03, 0.04), method='bounded', args = steady_state)
 
-rate_ss = sol.x 
+rate_ss = sol.x
+np.savetxt("figures/ss_rate.txt", np.expand_dims(np.asarray(np.around(rate_ss, 8)), axis = 0))
 #rate_ss = 0.03494711589289896
-
 steady_state.set_prices(rate_ss)
+np.savetxt("figures/ss_capital.txt", np.expand_dims(np.asarray(np.around(steady_state.K, 5)), axis = 0))
+
 
 policy_ss = solve_hh(steady_state.P, rate_ss, steady_state.wage, steady_state.tax, steady_state.L_tilde, steady_state.mu, steady_state.gamma, steady_state.beta,steady_state.delta, steady_state.state_grid, steady_state.asset_states)
 
@@ -99,7 +102,6 @@ shock = 0.05
 
 
 policy_ss = np.reshape(np.asarray(policy_ss), (2, 1000), order = "C")
-#K_sol, K_HH_evol, tfp_seq, T, rate_path, wage_path, policy, distr = solve_trans_path(ss, T, distr, policy_ss, tfp, K_guess)
 
 def transpath(shock, T, ss, distr, policy_ss):
 
@@ -129,18 +131,24 @@ K_var = corr_var(K_sol, tfp_seq)
 C_var = corr_var(C, tfp_seq[:-1])
 
 varmat = np.around(np.asarray([Y_var, K_var, C_var]), 4)
-np.savetxt("figures/varmat.txt", varmat)
+# Turn into PD
+varmat = pd.DataFrame(varmat, columns = ["Corr TFP", "Var"])
+varmat.index = ["Y", "I", "C"]
 
-
-
+text_file = open("figures/corvar.txt", "w")
+n = text_file.write(varmat.to_latex(index=True))
+text_file.close()
 
 
 # Auclert ########################
 F, J = get_jacobians(150, P_ss, policy_ss, distr, policy, h = 0.001)
+fig = px.imshow(F)
+fig.write_image("figures/fake_news.png")
+fig = px.imshow(J)
+fig.write_image("figures/jacobian.png")
+fig.show()
 
 # Plots ##########################
-import pandas as pd
-
 df = pd.DataFrame(K_HH_evol)
 
 df["iter"] = df.index
@@ -161,15 +169,12 @@ fig.append_trace(go.Scatter(x = df2["time"], y = df2["K"], mode='markers',
 fig.append_trace(go.Scatter(x = time_array, y = tfp_seq), row = 2, col = 1)
 fig.append_trace(go.Scatter(x = time_array, y = rate_path), row = 3, col = 1)
 
-fig.show()
 fig.write_image("figures/training_dynamics.png")
 
-np.min(time_array)
 
 fig1 = px.scatter(df2, x="time", y="K", color = "iter", color_continuous_scale=px.colors.sequential.Viridis, title = "Evolution of Household savings")
 
-fig.show()
-fig.write_image("figures/k_path.png")
+fig1.write_image("figures/k_path.png")
 
 np.savetxt("figures/K_HH_evol.csv", K_HH_evol, delimiter=",")
 np.savetxt("figures/K_sol.csv", K_sol, delimiter=",")
@@ -188,55 +193,26 @@ array_to_plot(rate_path, "Interest evolution", "rate_path.png")
 array_to_plot(wage_path, "Wage evolution", "wage_path.png")
 array_to_plot(tfp_seq, "TFP evolution", "tfp_path.png")
 
+# Larger shocks #####################################################
+T = 250
+shock = 0.7
 
-array_to_plot(distr, "tmp", "tmp.png")
-array_to_plot(distr2, "tmp2", "tmp2.png")
+K_sol, K_HH_evol, tfp_seq, T, rate_path, wage_path, policy, distr = transpath(shock, T, ss, distr_ss, policy_ss)
 
-np.sum(tmp[0:999])
+df = pd.DataFrame(K_HH_evol)
 
+df["iter"] = df.index
 
-np.sum(distr[0:999]) + np.sum(distr[1000:1999])
-P
-distr[1000]
-policy_ix_up[0]
-policy_ix_up[999]
-policy_ix_up[1000]
-policy_ix_up[1999]
-alpha_list[0]
-alpha_list[1000]
-alpha_list[999]
-alpha_list[1999]
+df2 = pd.melt(df, id_vars = "iter", var_name = "time", value_name = "K")
+df2["iter"] = df2["iter"].astype(float)
+time_array = np.linspace(start = 0, stop = len(tfp_seq)-2, num = len(tfp_seq)-1).astype("int")
 
 
-#
-tmp = egm_update(policy_ss, ss.P, ss.r, ss.r, ss.wage, ss.wage, ss.tax, ss.L_tilde, ss.mu, ss.gamma, ss.beta, ss.delta, ss.state_grid, ss.asset_states)
-policy_ss[(policy_ss - tmp)>0]
+fig = make_subplots(rows=3, cols=1, subplot_titles=("Hosehold saving training dynamics (large shock)", "TFP shock path", "Interest path"), shared_xaxes=True)
+fig.append_trace(go.Scatter(x = df2["time"], y = df2["K"], mode='markers',
+    marker=dict(color=df2["iter"])), row = 1, col = 1 )
+fig.append_trace(go.Scatter(x = time_array, y = tfp_seq), row = 2, col = 1)
+fig.append_trace(go.Scatter(x = time_array, y = rate_path), row = 3, col = 1)
 
-np.sum(policy_ss) / np.sum(tmp)
-
-alpha_list[300]
-tmp = get_distribution(P)
-
-
-distr_guess = np.full(2000, 1, dtype = np.float64)/2000
-
-np.sum(distr_guess)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+fig.write_image("figures/training_dynamics_large_shock.png")
 

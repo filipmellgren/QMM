@@ -224,10 +224,10 @@ def get_jacobians(T, P_ss, y_ss, distr, policy, h):
 	curlyY = np.empty(T)
 	for s in range(T):
 		# slide 18 or 19
-		curlyY[s] = np.vdot(distr[0], (policy[s] - policy_ss).flatten()) / h
+		curlyY[s] = np.vdot(distr[0], (policy[s] - y_ss).flatten()) / h
 	
 	# STEP 2: Forward iterate for each output o and get prediction/expectation vectors
-	curlyP = get_prediction_vectors(P_ss, policy_ss.flatten(), T) # TODO only until T-2 needed? Yes, curlyY is used otherwise
+	curlyP = get_prediction_vectors(P_ss, y_ss.flatten(), T) # TODO only until T-2 needed? Yes, curlyY is used otherwise
 	curlyP = np.asarray(curlyP)
 	
 	# STEP 3: For each o, i, combine Ycal_u^(o,i) with matrix product of Pcal^o.T and Dcal^i to get fake news matrix F^(o,i)
