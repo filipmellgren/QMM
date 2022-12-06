@@ -5,57 +5,89 @@ from scipy import optimize
 import time
 import scipy as sp
 from prodgrid import gen_prod_grid
-from industry_eq import industry_equilibrium
-
+from industry_eq import industry_equilibrium, price_aggregator
+import plotly.express as px
+import plotly.io as pio
+pio.templates.default = "plotly_white"
 
 import pandas as pd
 
 import ipdb
-def agg_equilibrium(c_curvature, c_shifter, z_draws, n_industries, prod_grid, probs, W, gamma, theta, competition, learning_rate):
+def agg_equilibrium(c_curvature, c_shifter, z_draws, n_industries, prod_grid, probs, W, gamma, theta, competition, learning_rate, path):
 	''' Computes an aggregate equilibrium for the entry game economy. Returns cost weighted variables by each percentile
-	TODO: how to cost weight?
-	Tom said that we find the percentiles, then compute an average over all industries within that range.
+
+	Conmputes each industry as if W = 1. This is then updated according to slide 42, L1, which gives us true industry prices. 
+
 	'''
 	# Industry variables, arrays with one value per industry
-	shares, costs, entry_costs, hhis, markups, prices, prices_j = [], [], [], [], [], [], []
-	Z_js = []
+	shares, hhis, markups, prices_j, Z_js = [], [], [], [], []
 	
 	for industry in range(n_industries):
+		print(industry)
 		z_draw = z_draws[industry, :]
-		share, hhi, markupj, Pj, Zj, cost = industry_equilibrium(c_curvature, c_shifter, z_draw, prod_grid, probs, W, gamma, theta, competition, learning_rate) 
+		share, hhi, markupj, P_tildej, Zj = industry_equilibrium(c_curvature, c_shifter, z_draw, prod_grid, probs, W, gamma, theta, competition, learning_rate) 
 
 		shares.append(share), 
-		costs.append(cost)#, entry_costs.append(entry_cost)
-		hhis.append(hhi), markups.append(markupj)
-		#prices.append(price), 
-		prices_j.append(Pj)
+		hhis.append(hhi)
+		markups.append(markupj)
+		prices_j.append(P_tildej)
 		Z_js.append(Zj)
 	
-	ipdb.set_trace()
-
-	share_pcts, cost_pcts = [], []
-	for pct in range(100):
-		share_pct, cost_pct = np.percentile(shares, pct), np.percentile(costs, pct)
-		share_pcts.append(share_pct), cost_pcts.append(cost_pct)
-
-	ipdb.set_trace()
-	Z = aggregate_Z(np.array(Z_js), np.array(prices_j), gamma, theta)
-	Ptilde = price_aggregator(np.array(prices_j), theta)
-	W = (1/Ptilde)**(1/(1-theta))
+	W = find_wage(np.array(prices_j), theta)
+	P = 1
 	Y = W**theta
-	entry_cost = np.mean(entry_costs)
-	L = (Y - entry_cost)/Z
+	Pj =  np.array(prices_j) * W 
+	Yj = (Pj/P)**(-theta) * Y # Slide 19, L1
+	costj = Yj / np.array(Z_js)
+	# Slide 46, L1 + using relationship of industry markup to find expression for aggregate markup.
+	Markup = ((P/W)**(1 - theta)) / np.sum(np.array(markups) ** (-theta) * np.array(Z_js)**(theta - 1))
+	Z = (np.mean((np.array(markups)/Markup)**(-theta) * np.array(Z_js)**(theta-1)))**(1/(theta - 1))
+	Lprod = Y/Z
+	L = Y / (Markup * W) # Slide 51 L1
+	# TODO L_bar
+	#L_entry = entry_costs/W Can figure these out given n and epsilon 
+	#Lbar = L_prod + L_entry ?
+	#L_bar = (Y - entry_costs)/Z
 
+	df = pd.DataFrame(list(zip(shares, hhis, markups, prices_j, Z_js)), columns =['shares', 'hhis', 'markups', 'Ptildej', 'Zj'])
+	df["cost"] = costj
+	df["Pj"] = df["Ptildej"] * W # Slide 42, L1.
+	df["pct"] = df.shares.rank(pct = True) * 100
+	df["pct"] = df["pct"].apply(lambda x: int(x))
+	df["j"] = df.index
 
-	shares_cw, hhis_cw, markups_cw, prices_cw = [], [], [], []
-	for pct in range(99):
-		share_cw = weighted_avg(cost_pcts[pct], cost_pcts[pct + 1], share_pcts[pct], share_pcts[pct + 1])
-		hhi_cw, markup_cw, price_cw = 1,1,1 # TODO: repeat above weighted average?
-		shares_cw.append(share_cw), hhis_cw.append(hhi_cw), markups_cw.append(markups_cw), prices_cw.append(price_cw)
+	weights = df[["cost", "pct", "j"]].copy().set_index(["pct", "j"])
+	group_weight = weights.groupby(level = 0).sum()
+	weights = weights.join(group_weight, rsuffix = "_group")
+	weights = weights.div(weights["cost_group"], axis = 0).drop(["cost_group"], axis = 1).rename(columns = {"cost" : "weight"})
+
+	df = df.set_index(["pct", "j"])
+	df = df.join(weights)
+	# Multiply columns by cost variable used to weigh observations
+	df = df.mul(df["weight"], axis=0)
+	df = df.groupby(level = 0).sum()
 	
-	return(shares_cw, hhis_cw, markups_cw, prices_cw)
+	plot_weighted_values(df, "shares", path)
+	plot_weighted_values(df, "hhis", path)
+	plot_weighted_values(df, "markups", path)
+	plot_weighted_values(df, "Pj", path)
+		
+	return
 
+def plot_weighted_values(df, outcome_var, path):
+	fig = px.scatter(x = df.index, y = df[outcome_var],
+		labels=dict(x="Percentile", y = outcome_var), title = "Weights by industry cost")
+	fig.write_image(path + "_" + outcome_var + ".png")
+	return
 
+def find_wage(Ptildej, theta):
+	''' Find economy wage
+	Slide 42, lecture 1
+	Assumes aggregate good has a normalized price, P = 1
+	'''
+	W_inv = price_aggregator(Ptildej, theta)
+	W = W_inv**(-1)
+	return(W)
 
 def aggregate_Z(Zj, markupj, markup, theta):
 	''' Slide 46, lecture 1
@@ -75,7 +107,7 @@ theta = 1.24
 prod_grid, probs = gen_prod_grid(alpha, gamma)
 
 n_industries = 1000
-n_industries = 2
+n_industries = 200
 z_draws = np.random.choice(prod_grid, size = (n_industries, 5000), p = probs)
 # Note on W: suppose W**(-theta)Y = 1. Calcualte equilibrium as if W and Y are 1.
 # Compute final good price, then use PW = 1, set Y st W**(-theta)Y = 1. 
@@ -85,22 +117,20 @@ W = 1
 c_curvature = 0
 c_shifter = 2e-4
 
+agg_equilibrium(c_curvature, c_shifter, z_draws, n_industries, prod_grid, probs, W, gamma, theta, "Bertrand", 1, "figures/parta")
 
-#z_draw = z_draws[0]
-#pd.DataFrame(z_draw).to_csv("z.csv", index = False)
-#z_draw = np.array(pd.read_csv("Prod_vec.csv"))
-#z_draw = np.squeeze(z_draw, axis = 1)
+c_curvature = 1
+c_shifter = 2e-7
 
-parta = agg_equilibrium(c_curvature, c_shifter, z_draws, n_industries, prod_grid, probs, W, gamma, theta, "Bertrand", 0.5)
-
-
-0.94 * prod_grid@probs
-
-partb = agg_equilibrium(1, 2e-7, z_draws, n_industries)
+agg_equilibrium(c_curvature, c_shifter, z_draws, n_industries, prod_grid, probs, W, gamma, theta, "Bertrand", 1, "figures/partb")
 
 
 
 # PLAYGROUND
+
+0.94 * prod_grid@probs
+
+partb = agg_equilibrium(1, 2e-7, z_draws, n_industries)
 industry_equilibrium(c_curvature, c_shifter, z_draws[0,:], prod_grid, probs, W, gamma, theta, "Bertrand", 0.1) 
 
 share, hhi, markupj, Pj, Zj, cost = industry_equilibrium(c_curvature, c_shifter, z_draw, prod_grid, probs, W, gamma, theta, "Bertrand", 0.1)
