@@ -110,11 +110,6 @@ def industry_equilibrium(c_curvature, c_shifter, z_draws, prod_grid, probs, W, g
 		1st period: Firms choose whether to pay an entry cost and enter
 		2nd period: Static nested CES model
 
-	TODO: what cost should I return?
-		- the cost is used to weigh the value of an industry when computing outcome variables between percentiles.
-		- Tom suggested using an average within industry
-	# Industry cost, or largest firm cost?
-	# Variabel or total?
 	'''
 
 	Y = W**theta # NOTE: wortks for initial steady state. Just how we normalize prices and units allowing this simplification. 

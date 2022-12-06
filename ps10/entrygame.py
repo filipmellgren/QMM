@@ -75,8 +75,9 @@ def agg_equilibrium(c_curvature, c_shifter, z_draws, n_industries, prod_grid, pr
 	return
 
 def plot_weighted_values(df, outcome_var, path):
+	# TODO: color by max prodcutivty
 	fig = px.scatter(x = df.index, y = df[outcome_var],
-		labels=dict(x="Percentile", y = outcome_var), title = "Weights by industry cost")
+		labels=dict(x="Largest firm percentile", y = outcome_var), title = "Weights by industry cost")
 	fig.write_image(path + "_" + outcome_var + ".png")
 	return
 
@@ -107,18 +108,19 @@ theta = 1.24
 prod_grid, probs = gen_prod_grid(alpha, gamma)
 
 n_industries = 1000
-n_industries = 200
 z_draws = np.random.choice(prod_grid, size = (n_industries, 5000), p = probs)
 # Note on W: suppose W**(-theta)Y = 1. Calcualte equilibrium as if W and Y are 1.
 # Compute final good price, then use PW = 1, set Y st W**(-theta)Y = 1. 
 # Finally, set L equal to aggregate labor used across industries by firms for proeuction and entry costs. 
 # To 
 W = 1
+# PART A
 c_curvature = 0
 c_shifter = 2e-4
 
 agg_equilibrium(c_curvature, c_shifter, z_draws, n_industries, prod_grid, probs, W, gamma, theta, "Bertrand", 1, "figures/parta")
 
+# PART B
 c_curvature = 1
 c_shifter = 2e-7
 
