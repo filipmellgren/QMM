@@ -14,7 +14,7 @@ def entry_decisions(n, c_curvature, c_shifter, z_draws, prod_grid, probs, W, gam
 		
 	z_draws_incumbent = z_draws[:int(n)]
 	
-	entry_costs = W * c_shifter * (n+1) ** c_curvature
+	entry_costs = get_entry_costs(W, c_shifter, n, c_curvature)
 	
 	enter_profits = []
 
@@ -29,6 +29,12 @@ def entry_decisions(n, c_curvature, c_shifter, z_draws, prod_grid, probs, W, gam
 	net_benefit = value_entering - entry_costs
 
 	return(net_benefit, entry_costs)
+
+def get_entry_costs(W, c_shifter, n, c_curvature):
+	'''
+	n is the number of incumbents, so entry cost for marginal entrant uses n+1
+	'''
+	return(W * c_shifter * (n+1) ** c_curvature)
 
 def get_profits(W, z_draws, gamma, theta, Y, competition, learning_rate):
 	''' Calculate a profit vector of size n
@@ -50,7 +56,7 @@ def get_profits(W, z_draws, gamma, theta, Y, competition, learning_rate):
 
 	Pj = price_aggregator(pij, gamma) # Scales with W (note, not final as we compute industry *as if* each of the wage and Y = 1.
 
-	profits = (1 - 1/markups) * (markups * W / z_draws)**(1-gamma) * Pj**(gamma - theta) * Y # Scales with W**(1-theta)*Y. Slide: 15 Lecture 2 (small firms) TODO Different for large firms?
+	profits = (1 - 1/markups) * (markups * W / z_draws)**(1-gamma) * Pj**(gamma - theta) * Y # Scales with W**(1-theta)*Y. Slide: 15 Lecture 2 (small firms) TODO Different for large firms? TODO: make dependent on W**(-theta)*Y = x instead so it works with bisection
 
 	return(profits, markups, pij, Pj)
 
@@ -139,7 +145,7 @@ def industry_equilibrium(c_curvature, c_shifter, z_draws, prod_grid, probs, W, g
 	# Slide 45 lecture 1
 	Zj = (np.sum((markups/markupj)**(-gamma) * z_draws**(gamma - 1)))**(1/(gamma - 1))
 
-	return(share, hhi, markupj, Ptildej, Zj)
+	return(share, hhi, markupj, Ptildej, Zj, int(marginal_entrant))
 
 
 
