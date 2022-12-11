@@ -37,7 +37,8 @@ def agg_variables(ratio, P, P_tildej, Z_js, markups, marginal_entrants, theta, c
 		entry_labor += np.sum(get_entry_costs(W, c_shifter, entrant_vec, c_curvature))/W
 	
 	L_total = Lprod + entry_labor / Z_js.size
-	return(Lprod, L_total, W, Y, Z, Markup, costj)
+	avg_firms = np.mean(marginal_entrants)
+	return(Lprod, L_total, W, Y, Z, Markup, costj, avg_firms)
 
 def agg_equilibrium(c_curvature, c_shifter, z_draws, n_industries, prod_grid, probs, W, gamma, theta, competition, learning_rate, path):
 	''' Computes an aggregate equilibrium for the entry game economy. Returns cost weighted variables by each percentile
@@ -64,7 +65,7 @@ def agg_equilibrium(c_curvature, c_shifter, z_draws, n_industries, prod_grid, pr
 	# Find aggregate price by aggregating. I.e. not equal to one here. 
 	P = (np.mean(np.array(prices_j)**(1-theta)))**(1/(1-theta))
 
-	Lprod, L, W, Y, Z, Markup, costj = agg_variables(1, P, np.array(prices_j), np.array(Z_js), np.array(markups), np.array(marginal_entrants), theta, c_shifter, c_curvature)
+	Lprod, L, W, Y, Z, Markup, costj, avg_firms = agg_variables(1, P, np.array(prices_j), np.array(Z_js), np.array(markups), np.array(marginal_entrants), theta, c_shifter, c_curvature)
 
 	df = pd.DataFrame(list(zip(shares, hhis, markups, prices_j, Z_js)), columns =['shares', 'hhis', 'markups', 'Ptildej', 'Zj'])
 	df["cost"] = costj

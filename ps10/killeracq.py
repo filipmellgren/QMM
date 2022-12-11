@@ -161,36 +161,47 @@ def industry_equilibrium(ratio, c_curvature, c_shifter, z_draws, prod_grid, prob
 	# Slide 45 lecture 1
 	Zj = (np.sum((markups/markupj)**(-gamma) * z_draws**(gamma - 1)))**(1/(gamma - 1))
 
-	return(markupj, Ptildej, Zj, int(marginal_entrant))
+	_, _, shares, _, _ = markup_diff(markups, z_draws, gamma, theta, competition)
+	share_large = shares[0]
+	profit_constant_large = (1-1/markups[0]) * share_large # Multiply by total output Y
 
-def agg_mc(ratio, L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate, path):
+	return(markupj, Ptildej, Zj, int(marginal_entrant), profit_constant_large, share_large)
+
+def agg_mc(ratio, L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate, path, killer_acquisitions):
 	''' Checks aggregate market clearing. 
 	Use only after solving for an initial equilibrium, as it depends on L_supply which is only known after it has been solved for in equilibrium once. 
 	ratio: is the W**(-theta) Y value using which firms decide whether to enter or not. It reduces the state space.
 
 	For ratio = 1 = W = Y, L becomes the same as in Exc1 part b
+	killer_acquisitions : a boolean indicating whether first incumbent is allowed to acquire to kill
 	'''
 	# Industry variables, arrays with one value per industry
-	shares, hhis, markups, prices_j, Z_js, marginal_entrants = [], [], [], [], [], []
-
-	killer_acquisitions = False # TODO
+	markups, prices_j, Z_js, marginal_entrants = [], [], [], []
+	profits_large, shares_large = [], []
 
 	for industry in range(z_draws.shape[0]):	
 		z_draw = z_draws[industry, :]
-		markupj, P_tildej, Zj, marginal_entrant = industry_equilibrium(ratio, c_curvature, c_shifter, z_draw, prod_grid, probs, gamma, theta, competition, learning_rate, killer_acquisitions) 
+		markupj, P_tildej, Zj, marginal_entrant, profit_large, share_large = industry_equilibrium(ratio, c_curvature, c_shifter, z_draw, prod_grid, probs, gamma, theta, competition, learning_rate, killer_acquisitions) 
 
 		markups.append(markupj)
 		prices_j.append(P_tildej)
 		Z_js.append(Zj)
 		marginal_entrants.append(marginal_entrant)
+		profits_large.append(profit_large)
+		shares_large.append(share_large)
+	
+	
 	
 	#Lprod, L, W_implied, Y_tilde, Z, Markup, costj = agg_variables(np.array(P_tildej), np.array(Z_js), np.array(markups), theta)
-	P = 1
-	Lprod, L, W_implied, Y_tilde, Z, Markup, costj = agg_variables(ratio, P, np.array(P_tildej), np.array(Z_js), np.array(markups), marginal_entrants, theta, c_shifter, c_curvature)
+	P = 1 # Given by problem set
+	Lprod, L, W_implied, Y_tilde, Z, Markup, costj, avg_firms = agg_variables(ratio, P, np.array(P_tildej), np.array(Z_js), np.array(markups), marginal_entrants, theta, c_shifter, c_curvature)
 
+	share_large_avg = np.mean(np.array(shares_large))
+	profit_large_avg = np.mean(np.array(profits_large) * Y_tilde)
 	loss = L - L_supply
+	markups = np.array(markups)
 	
-	return(loss, np.array(markups), np.array(prices_j), np.array(Z_js), Y_tilde, W_implied)
+	return(loss, markups, np.array(prices_j), np.array(Z_js), Y_tilde, W_implied, avg_firms, profit_large_avg, share_large_avg, P)
 
 def cost_from_prices(Zj, Pj, P, W):
 	''' Obtain firm marginal cost from productivity, prices, and wage
@@ -201,47 +212,29 @@ def cost_from_prices(Zj, Pj, P, W):
 	costj = Yj / Zj
 	return(costj)
 
-def agg_equilibrium(L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate, path):
+def agg_equilibrium(L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate, path, killer_acquisitions):
 	''' Computes an aggregate equilibrium for the entry game economy. Returns cost weighted variables by each percentile
-
-	TODO: implement bisection over W**(-theta)Y.
-
-	See slide 41, lecture 1
 
 	# TODO: add case where W=Y = 1
 	'''
 	
-	X = optimize.bisect(lambda x: agg_mc(x, L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate, path)[0], 1e-1, 4e+0, xtol = 1e-5)
+	X = optimize.bisect(lambda x: agg_mc(x, L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate, path, killer_acquisitions)[0], 1e-1, 1e+1, xtol = 1e-5)
 	
-	_, markups, prices_j, Z_js, Y, W = agg_mc(X, L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate, path)
+	_, markups, prices_j, Z_js, Y, W, avg_firms, profit_large, share_large, P = agg_mc(X, L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate, path, killer_acquisitions)
 
-	
-	
-	
-	df = pd.DataFrame(list(zip(shares, hhis, markups, prices_j, Z_js)), columns =['shares', 'hhis', 'markups', 'Ptildej', 'Zj'])
-	df["cost"] = costj
-	df["Pj"] = df["Ptildej"] * W # Slide 42, L1.
-	df["pct"] = df.shares.rank(pct = True) * 100
-	df["pct"] = df["pct"].apply(lambda x: int(x))
-	df["j"] = df.index
+	hh_welfare = get_hh_welfare(W, L_supply, P)
 
-	weights = df[["cost", "pct", "j"]].copy().set_index(["pct", "j"])
-	group_weight = weights.groupby(level = 0).sum()
-	weights = weights.join(group_weight, rsuffix = "_group")
-	weights = weights.div(weights["cost_group"], axis = 0).drop(["cost_group"], axis = 1).rename(columns = {"cost" : "weight"})
+	return(profit_large, share_large, avg_firms, hh_welfare)
 
-	df = df.set_index(["pct", "j"])
-	df = df.join(weights)
-	# Multiply columns by cost variable used to weigh observations
-	df = df.mul(df["weight"], axis=0)
-	df = df.groupby(level = 0).sum()
-	
-	plot_weighted_values(df, "shares", path)
-	plot_weighted_values(df, "hhis", path)
-	plot_weighted_values(df, "markups", path)
-	plot_weighted_values(df, "Pj", path)
-		
-	return
+def get_hh_welfare(W, L_supply, P):
+	''' Returns HH welfare
+	Use BC and FOC on slide 40 to back out parameter psi, assuming rho = 2
+	'''
+	hh_c = W * L_supply / P # From BC
+	rho = 2 # Assumption. TODO: make consistent with curvatures and shift?
+	psi = -1/rho * np.log(hh_c * W / P) / np.log(L_supply) # Rewrite FOC
+	hh_welfare = (hh_c**(1-rho)-1)/(1-rho) - 1/(psi + 1) * L_supply**(psi + 1)
+	return(hh_welfare)
 
 alpha = 6
 gamma = 10.5
@@ -261,14 +254,9 @@ c_shifter = 2e-7
 L_supply = np.loadtxt("total_labor.txt")
 #L_supply = 0.8665185419497495  # When I allow P to vary (not forcing to 1)
 learning_rate = 1
-# Found ratio = 51. Seems wrong but code runs :)
-agg_equilibrium(L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, "Bertrand", learning_rate, "figures/scrap")
 
+profit_large, share_large, avg_firms, hh_welfare = agg_equilibrium(L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, "Bertrand", learning_rate, "figures/scrap", False)
 
-
-z_draws[0,:]
-
-len([0,1,2,3])
 
 
 
