@@ -1,10 +1,8 @@
 # Industry equilibrium with killer acquisitions and not taking w**theta = Y = 1 as given
+# This file assumes there exists an L_supply that can be obtained from np.loadtxt("total_labor.txt"). Running entrygame.py first creates that file. 
 
-# This shouild be merged with entrygame.py (from where Labor supply should come) and industry_eq.py. 
+# TODO: This shouild be merged with industry_eq.py. Functions will need to be more general first. Currently incompatible as industry_eq.py is mostly based on taking W and Y as given whereas this file iterates over W**-theta * Y
 
-# Keep first and last entry from entrydecisions. First is profit for incumbent, last is profit dfor entrant
-# Calucllate expected profits if erntrant enters for icnumbet. This will be comapred to the price
-# Before doing this. IMplement busection seach over pricesd W and Y
 
 import numpy as np
 from scipy.stats import pareto
@@ -12,7 +10,7 @@ from scipy import optimize
 import time
 import scipy as sp
 from prodgrid import gen_prod_grid
-from industry_eq import industry_equilibrium, price_aggregator
+from industry_eq import industry_equilibrium, price_aggregator, get_entry_costs
 from entrygame import find_wage, agg_variables
 import plotly.express as px
 import plotly.io as pio
@@ -20,7 +18,6 @@ pio.templates.default = "plotly_white"
 
 import pandas as pd
 
-import ipdb
 
 def entry_decisions(n, ratio, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate):
 	''' Calculate net benefit to marginal entrant
@@ -103,17 +100,7 @@ def markup_diff(markup_guess, z_draws, gamma, theta, competition):
 
 	return(loss, markups, shares, elas, elas_grad)
 
-def acquire_decision(n, profit_acq, c_curvature, c_shifter, z_draws, prod_grid, probs, W, gamma, theta, Y, competition, learning_rate):
-	''' Find marginal firm that incumbent wants to acquire
-	If the value of acquiring > 0, then acquire this firm and all future entrants. TODO: seems expensive?
-	profit_acq : is the profit of the first incumbent if it chooses to acquire
-	'''
-	# TODO: things have changed in the entry decision function. This will no longer work as intended.
-	price_acq, _, E_profit_entry = entry_decisions(n, ratio, c_curvature, c_shifter, z_draws, prod_grid, probs, W, gamma, theta, Y, competition, learning_rate)
-	acquire_benefit = (profit_acq - E_profit_entry) - price_acq
-	return(acquire_benefit)
-
-def industry_equilibrium(ratio, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate, killer_acquisitions):
+def industry_equilibrium(ratio, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate):
 	''' Simulate an industr, given prodcutivity draws.
 	
 	This implementation does not assume 
@@ -124,20 +111,20 @@ def industry_equilibrium(ratio, c_curvature, c_shifter, z_draws, prod_grid, prob
 	
 	INPUT :
 	ratio : W**(-theta) * Y a guess of what this is. Want supply = demand so find this using bisection. Note, these are aggregates so find them in aggregate equilbirium.
-	killer_acquisitions : Boolean whether killer acquisitions for the first incumbent is allowed.
+	
 	OUTPUT : 
 	'''
  
 	# First stage: Entry decisions
 	# TODO: incumbent needs to make its decision before we do this
 	try:
-		n_incumbents = optimize.bisect(lambda x: entry_decisions(x, ratio, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate), 1, 5000-1, xtol = 0.9)
+		n_incumbents = optimize.bisect(lambda x: entry_decisions(x, ratio, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate), 1, z_draws.size-1, xtol = 0.9)
 
 	except ValueError:
 		high_point = entry_decisions(1, ratio, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate)
 		low_point = entry_decisions(1, ratio, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate)
 		if high_point > 0 and low_point > 0:
-			n_incumbents = 4999
+			n_incumbents = z_draws.size -1
 		if high_point < 0 and low_point < 0:
 			n_incumbents = 1
 		
@@ -145,11 +132,6 @@ def industry_equilibrium(ratio, c_curvature, c_shifter, z_draws, prod_grid, prob
 
 	z_draws = z_draws[:int(marginal_entrant)]
 
-	if killer_acquisitions:
-		profit_acq = _, _, _ = get_profits(W, z_draws[:-1], gamma, theta, Y, competition, learning_rate)
-		marginal_acqusition = optimize.bisect(lambda x: acquire_decision(x, profit_acq, c_curvature, c_shifter, z_draws, prod_grid, probs, W, gamma, theta, Y, competition, learning_rate)[0], 1, marginal_entrant, xtol = 0.9) # TODO: handle cases where it chooses to always or never acquire
-		z_draws = z_draws[:int(marginal_acqusitionz)] # TODO: should I + 1 or -1 here?
-	
 	# Second stage: Static nested CES from lecture 1
 	
 	markups = get_markups(gamma, theta, z_draws, competition)
@@ -167,13 +149,13 @@ def industry_equilibrium(ratio, c_curvature, c_shifter, z_draws, prod_grid, prob
 
 	return(markupj, Ptildej, Zj, int(marginal_entrant), profit_constant_large, share_large)
 
-def agg_mc(ratio, L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate, path, killer_acquisitions):
+def agg_mc(ratio, L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate, path):
 	''' Checks aggregate market clearing. 
 	Use only after solving for an initial equilibrium, as it depends on L_supply which is only known after it has been solved for in equilibrium once. 
 	ratio: is the W**(-theta) Y value using which firms decide whether to enter or not. It reduces the state space.
 
 	For ratio = 1 = W = Y, L becomes the same as in Exc1 part b
-	killer_acquisitions : a boolean indicating whether first incumbent is allowed to acquire to kill
+	
 	'''
 	# Industry variables, arrays with one value per industry
 	markups, prices_j, Z_js, marginal_entrants = [], [], [], []
@@ -181,7 +163,7 @@ def agg_mc(ratio, L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, g
 
 	for industry in range(z_draws.shape[0]):	
 		z_draw = z_draws[industry, :]
-		markupj, P_tildej, Zj, marginal_entrant, profit_large, share_large = industry_equilibrium(ratio, c_curvature, c_shifter, z_draw, prod_grid, probs, gamma, theta, competition, learning_rate, killer_acquisitions) 
+		markupj, P_tildej, Zj, marginal_entrant, profit_large, share_large = industry_equilibrium(ratio, c_curvature, c_shifter, z_draw, prod_grid, probs, gamma, theta, competition, learning_rate) 
 
 		markups.append(markupj)
 		prices_j.append(P_tildej)
@@ -191,11 +173,10 @@ def agg_mc(ratio, L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, g
 		shares_large.append(share_large)
 	
 	
-	
-	#Lprod, L, W_implied, Y_tilde, Z, Markup, costj = agg_variables(np.array(P_tildej), np.array(Z_js), np.array(markups), theta)
 	P = 1 # Given by problem set
-	Lprod, L, W_implied, Y_tilde, Z, Markup, costj, avg_firms = agg_variables(ratio, P, np.array(P_tildej), np.array(Z_js), np.array(markups), marginal_entrants, theta, c_shifter, c_curvature)
 
+	Lprod, L, W_implied, Y_tilde, Z, Markup, costj, avg_firms = agg_variables(ratio, P, np.array(P_tildej), np.array(Z_js), np.array(markups), marginal_entrants, theta, c_shifter, c_curvature)
+		
 	share_large_avg = np.mean(np.array(shares_large))
 	profit_large_avg = np.mean(np.array(profits_large) * Y_tilde)
 	loss = L - L_supply
@@ -212,19 +193,19 @@ def cost_from_prices(Zj, Pj, P, W):
 	costj = Yj / Zj
 	return(costj)
 
-def agg_equilibrium(L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate, path, killer_acquisitions):
+def agg_equilibrium(L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate, path):
 	''' Computes an aggregate equilibrium for the entry game economy. Returns cost weighted variables by each percentile
 
 	# TODO: add case where W=Y = 1
 	'''
 	
-	X = optimize.bisect(lambda x: agg_mc(x, L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate, path, killer_acquisitions)[0], 1e-1, 1e+1, xtol = 1e-5)
+	X = optimize.bisect(lambda x: agg_mc(x, L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate, path)[0], 1e-1, 1e+1, xtol = 1e-5)
 	
-	_, markups, prices_j, Z_js, Y, W, avg_firms, profit_large, share_large, P = agg_mc(X, L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate, path, killer_acquisitions)
+	_, markups, prices_j, Z_js, Y, W, avg_firms, profit_large, share_large, P = agg_mc(X, L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, competition, learning_rate, path)
 
 	hh_welfare = get_hh_welfare(W, L_supply, P)
 
-	return(profit_large, share_large, avg_firms, hh_welfare)
+	return(profit_large, share_large, avg_firms, hh_welfare, W, Y, prices_j)
 
 def get_hh_welfare(W, L_supply, P):
 	''' Returns HH welfare
@@ -240,10 +221,11 @@ alpha = 6
 gamma = 10.5
 theta = 1.24
 prod_grid, probs = gen_prod_grid(alpha, gamma)
+z_large = prod_grid[-1]
 
 z_draws = np.repeat(prod_grid[0], 5000-1)
 
-z_draws = np.insert(z_draws, 0, prod_grid[-1])
+z_draws = np.insert(z_draws, 0, z_large)
 z_draws = np.expand_dims(z_draws, 0)
 
 prod_grid = np.expand_dims(prod_grid[0], axis = 0)
@@ -252,10 +234,65 @@ probs = np.expand_dims(1, axis = 0)
 c_curvature = 1
 c_shifter = 2e-7
 L_supply = np.loadtxt("total_labor.txt")
-#L_supply = 0.8665185419497495  # When I allow P to vary (not forcing to 1)
+
 learning_rate = 1
 
-profit_large, share_large, avg_firms, hh_welfare = agg_equilibrium(L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, "Bertrand", learning_rate, "figures/scrap", False)
+profit_large, share_large, avg_firms, hh_welfare, W, Y, Pj = agg_equilibrium(L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, "Bertrand", learning_rate, "figures/scrap")
+
+f = open("killer_acq.txt", "w")
+f.write("No KA " + "profit_large:" + str(profit_large) + ", Share:" + str(share_large) + ", avg firms" + str(avg_firms) + ", hh welfare: " + str(hh_welfare))
+f.close()
+
+def agg_eq_ka(k, firms_no_ka, profit_no_ka, gamma, theta, c_shifter, c_curvature):
+	''' Computes aggregate equilibrium difference in profits when the initial firm acquires all firms following the kth entrant.
+
+	Acquiring the kth entrant and everyoen afterwards (due to increasing costs to enter and same effect on profit_large as kth entrant) can be both profitable and not profitable.
+
+	This function tells whether it is profitable to acquire everyuione following the kth entrant. 
+
+	A key assumption is that the profit of the future entrants remains at the same constant value. Otherwise, an effect of acquiring a firm is that the future profits of potential entrants increases, and therefore the price for the incumbent. 
+	TODO: should I change Pj to 1? 
+	'''
+	print(k)
+	# Effect on profit_large comes from limiting number of entrants to k.
+	# Everyone after k is acquired as cost of acquiring additional firms decrease while effect on profits is constant. 
+	z_draws_limited = z_draws[:, 0:k]
+
+	profit_large, share_large, avg_firms, hh_welfare, W, Y, Pj = agg_equilibrium(L_supply, c_curvature, c_shifter, z_draws_limited, prod_grid, probs, gamma, theta, "Bertrand", learning_rate, "figures/scrap")
+
+	markup_s = gamma / (gamma - 1)
+	Pj = 1 # TODO: think this normalization should be made as we know P = 1,
+	# And there is only one industry (for problem set), so Pj = 1. 
+	
+	entry_profits = (1 - 1 / markup_s) * (markup_s * W / z_draws[:, k:firms_no_ka])**(1 - gamma) * Pj**(gamma - theta) * Y
+	
+	entry_costs = get_entry_costs(W, c_shifter, np.arange(k+1, firms_no_ka+1), c_curvature)
+
+	acq_price = np.sum(entry_profits - entry_costs)
+
+	net_profit_large = profit_large - acq_price
+	
+	return(profit_no_ka - net_profit_large)
+	
+from scipy.optimize import minimize_scalar
+
+sol = minimize_scalar(lambda x: agg_eq_ka(int(x), int(avg_firms), profit_large, gamma, theta, c_shifter, c_curvature), bounds = (2, avg_firms), method = "bounded", options = {"xatol" : 0.9})
+
+z_draws = np.repeat(prod_grid[0], int(sol.x))
+
+z_draws = np.insert(z_draws, 0, z_large)
+z_draws = np.expand_dims(z_draws, 0)
+
+profit_large, share_large, avg_firms, hh_welfare, W, Y, Pj = agg_equilibrium(L_supply, c_curvature, c_shifter, z_draws, prod_grid, probs, gamma, theta, "Bertrand", learning_rate, "figures/scrap")
+
+f = open("killer_acq.txt", "a")
+f.write("\n KA " + "profit_large:" + str(profit_large) + ", Share:" + str(share_large) + ", avg firms" + str(avg_firms) + ", hh welfare: " + str(hh_welfare))
+f.close()
+
+
+
+
+
 
 
 

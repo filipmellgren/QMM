@@ -34,7 +34,7 @@ def get_entry_costs(W, c_shifter, n, c_curvature):
 	'''
 	n is the number of incumbents, so entry cost for marginal entrant uses n+1
 	'''
-	return(W * c_shifter * (n+1) ** c_curvature)
+	return(W * c_shifter * ((n+1) ** c_curvature))
 
 def get_profits(W, z_draws, gamma, theta, Y, competition, learning_rate):
 	''' Calculate a profit vector of size n
