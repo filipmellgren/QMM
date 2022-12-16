@@ -3,6 +3,9 @@ import numpy as np
 import ipdb
 from scipy import optimize
 import os
+import time
+import plotly.express as px
+import pandas as pd
 # Transition after unexpected decrease in aggregate productivity ("MIT shock")
 
 ga = 2 # sigma, risk aversion parameter
@@ -24,7 +27,7 @@ T = 200
 # N = 400
 N = 800
 dt = T/N
-time = np.arange(0, N)*dt
+time_vec = np.arange(0, N)*dt
 max_price_it = 300
 convergence_criterion = 10^(-5)
 
@@ -169,9 +172,14 @@ def hh_vf_iterate(r, v, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, 
             print("Value Function Converged, Iteration = ")
             print(n)
             break
-    return(A)
+    return(V, A)
 
-def solve_distr(A, I, da):
+def solve_ergodic_distr(A, I, da):
+    ''' Solves for ergodic distribution
+    This distribution solver assumes the distribution is fixed over time.
+    Therefore, it cannot be used to solve for the changing distribution needed for an 
+    MIT shock.
+    '''
     AT = np.copy(A.T)
     b = np.zeros(2*I)
     # need to fix one value, otherwise matrix is singular
@@ -192,14 +200,16 @@ def solve_distr(A, I, da):
 def check_mc(r, al, Aprod, d, z_ave, v0, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, a):
     
     KD, w = solve_firm(r, al, Aprod, d, z_ave)
-    A = hh_vf_iterate(r, v0, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho)
-    g = solve_distr(A, I, da)
+    V, A = hh_vf_iterate(r, v0, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho)
+    g = solve_ergodic_distr(A, I, da)
     KS = np.dot(g, np.tile(a*da, 2))
+
+    print((KS, KD))
     return(KS - KD)
 
 path = 'r_ss.txt'
 if not os.path.exists(path):
-  r_ss = optimize.bisect(lambda x: check_mc(x, al, Aprod, d, z_ave, v0, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, a), 0.001, 0.05)
+  r_ss = optimize.bisect(lambda x: check_mc(x, al, Aprod, d, z_ave, v0, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, a), 0.001, 0.05, xtol = 1e-8)
   f = open(path, "w")
   f.write(str(r_ss))
   f.close()
@@ -211,46 +221,121 @@ r_ss = float(r_ss)
 
 
 
-# TODO: MIT shocks
+#MIT shocks
 # Increase A with 0.03
 # Decrease A with 0.03
-def backward_iterate_hh(v_end):
+def backward_iterate_hh(rpath, v_end, dVb, dVf, I, wpath, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, T):
     ''' HJB. See slide 22 L2
-    TODO: repeat solve_hh, without iterating. 
-    Worth turning that into something more modular first. 
+    
     '''
+    v_forward = v_end
+    A_list = []
     for t in reversed(range(T)):
+        r = rpath[t]
+        w = wpath[t]
+        V, A = solve_hh(r, v_forward, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho)
+        A_list.append(A)
+        v_forward = np.copy(V)
 
-        v_vec[t] = () / rho
-    return(v_vec)
-def mit_shock_diff(r):
+    return(A_list)
+
+def forward_iterate_distr(A_list, g0, dt, I, da, TT):
+    ''' Forward iterate the household distribution
+    Watch out for multiple solutions. Only one is correct
+    See slide 22, L2.
+    
+    '''
+    g_list = []
+    gt = g0
+    
+    for t in range(TT):
+        AT = A_list[t].T
+        B = (AT - np.eye(2*I)/dt) * dt 
+        gg = np.linalg.solve(B, -gt)
+
+        g_sum = np.dot(gg.T, np.ones((2*I,1))*da) 
+        gt = gg / g_sum
+        #gt = np.concatenate((gg[:I], gg[I:2*I]))
+        g_list.append(gt)
+    return(g_list)
+
+def mit_shock_diff(rpath, Aprod, v_end, distr_start, dVb, dVf, I, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, TT, dt, al, d, z_ave):
     ''' For a given r, compute excess supply or demand over a transition
 
     '''
     mc = []
-    HBJ_sol = backward_iterate_hh()
-    KF_sol = forward_iterate_hh()
-    for t in T:
-        KD, w = solve_firm(r[t], al, Aprod[t], d, z_ave)
-        A = HBJ_sol[t]
+    _, w = solve_firm(rpath, al, Aprod, d, z_ave)
+
+    HBJ_sol = backward_iterate_hh(rpath, v_end, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, TT)
+    HBJ_sol = HBJ_sol[::-1]
+    
+    KF_sol = forward_iterate_distr(HBJ_sol, distr_start, dt, I, da, TT)
+
+    for t in range(TT):
+        KD, w = solve_firm(rpath[t], al, Aprod[t], d, z_ave)
         g = KF_sol[t]
         KS = np.dot(g, np.tile(a*da, 2))
         mc.append(KS - KD)
     
     return(np.array(mc))
-# Solve using iterative approach
-# 1. solve_firm OK!
-# 2. backward iterate HJB
-# 3. forward iterate KF
-# 4. KS Ok!
-# 5. check mc OK!
-    # keep iterating until convergence. Update with some learning rate parameter.
 
-# Solve using Newton method slide 26 Lecture 2
 
-# 1. solve_firm OK!
-# 2. backward iterate HJB
-# 3. forward iterate KF
-# 4. KS OK!
-# 5. check mc OK!
-    # keep iterating until convergence guided by "Newton's method" 
+v_end, A_ss = hh_vf_iterate(r_ss, v0, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho)
+
+distr_start = solve_ergodic_distr(A_ss, I, da)
+TT = 100
+rpath = np.repeat(r_ss, TT)
+
+def iterate_rate_guess(rguess, al, Aprod, d, z_ave, v_end, distr_start, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, T, dt):
+    ''' Use the iterative approach to find market clearing rate_path
+    '''
+    
+    tol = 1e-3
+    KD, _ = solve_firm(rguess, al, Aprod, d, z_ave)
+    lr = 0.5
+    diff = 100
+    while diff > tol:
+        errorvec = mit_shock_diff(rguess, Aprod, v_end, distr_start, dVb, dVf, I, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, T, dt, al, d, z_ave)
+        KD = KD + lr * errorvec
+        rguess = al * Aprod * (z_ave / KD)**(1-al) - d
+        diff = np.max(np.abs(errorvec))
+        print(diff)
+    return(rguess)
+
+
+
+
+# Productivity decrease
+Aprod = 0.1 - 0.003 * 0.9**np.linspace(0,TT, TT) # TODO: what persistence to use?
+
+
+# Productivity increase
+# TODO what happens with share of agents in the lowest asset state? (return distribution)
+Aprod = 0.1 + 0.003 * 0.9**np.linspace(0,TT, TT) # TODO: what persistence to use?
+
+# Solve using Gradient Descent, 151 seconds
+start = time.time()
+rsol = iterate_rate_guess(rpath, al, Aprod, d, z_ave, v_end, distr_start, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, TT, dt)
+end = time.time()
+end - start
+
+# Solve using Newton method slide 26 Lecture 2, 90 seconds
+start = time.time()
+rsol_newton = optimize.newton(lambda x: mit_shock_diff(x, Aprod, v_end, distr_start, dVb, dVf, I, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, TT, dt, al, d, z_ave), rpath, tol = 1e-3)
+end = time.time()
+end - start
+
+
+
+
+
+
+
+df = pd.DataFrame(rsol)
+df = df.reset_index()
+fig = px.line(df, x="index", y = 0, title='Life expectancy in Canada')
+fig.show()
+
+
+
+
