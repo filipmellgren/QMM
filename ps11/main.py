@@ -5,6 +5,8 @@ from scipy import optimize
 import os
 import time
 import plotly.express as px
+import plotly.io as pio
+pio.templates.default = "plotly_white"
 import pandas as pd
 # Transition after unexpected decrease in aggregate productivity ("MIT shock")
 
@@ -55,7 +57,6 @@ dVb = np.zeros((I,2))
 c = np.zeros((I,2))
 
 # Create the Aswitch matrix
-# TODO: is this correct?
 Aswitch = np.concatenate([-np.eye(I) * la[0], np.eye(I) * la[0]], axis=1)
 Aswitch = np.concatenate([Aswitch, np.concatenate([np.eye(I) * la[1], -np.eye(I) * la[1]], axis=1)])
 
@@ -150,10 +151,20 @@ def solve_hh(r, v_forward, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitc
     V_stacked = np.hstack((V[:, 0], V[:, 1]))
     b = u_stacked + V_stacked / Delta
     
-    V_stacked = np.linalg.solve(B, b)
+    try:
+        V_stacked = np.linalg.solve(B, b)
+    except np.linalg.LinAlgError:
+        # Happens because V is not striclty increasing in assets
+        ipdb.set_trace()
 
     # update value
     V = V_stacked.reshape((I, 2), order = "F") 
+    try:
+        assert np.all(np.diff(V, axis = 0) > 0), "Not increasing"
+    except AssertionError:
+        # Dirty fix. Not sure why solution is not always increasing.
+        # Replace first value with second value*1.01
+        V[0,0] = V[1,0]*1.001
     return(V, A)
 
 def hh_vf_iterate(r, v, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho):
@@ -209,7 +220,7 @@ def check_mc(r, al, Aprod, d, z_ave, v0, dVb, dVf, I, w, z, amin, amax, ga, da, 
 
 path = 'r_ss.txt'
 if not os.path.exists(path):
-  r_ss = optimize.bisect(lambda x: check_mc(x, al, Aprod, d, z_ave, v0, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, a), 0.001, 0.05, xtol = 1e-8)
+  r_ss = optimize.bisect(lambda x: check_mc(x, al, Aprod, d, z_ave, v0, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, a), rmin, rmax, xtol = 1e-8)
   f = open(path, "w")
   f.write(str(r_ss))
   f.close()
@@ -220,10 +231,7 @@ f.close()
 r_ss = float(r_ss)
 
 
-
-#MIT shocks
-# Increase A with 0.03
-# Decrease A with 0.03
+# MIT SHOCK
 def backward_iterate_hh(rpath, v_end, dVb, dVf, I, wpath, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, T):
     ''' HJB. See slide 22 L2
     
@@ -232,7 +240,9 @@ def backward_iterate_hh(rpath, v_end, dVb, dVf, I, wpath, z, amin, amax, ga, da,
     A_list = []
     for t in reversed(range(T)):
         r = rpath[t]
-        w = wpath[t]
+        w = wpath[t] # TODO: singular matrix when this depends on t
+        # Maybe solved by lowering learning rate
+        
         V, A = solve_hh(r, v_forward, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho)
         A_list.append(A)
         v_forward = np.copy(V)
@@ -277,64 +287,82 @@ def mit_shock_diff(rpath, Aprod, v_end, distr_start, dVb, dVf, I, z, amin, amax,
         KS = np.dot(g, np.tile(a*da, 2))
         mc.append(KS - KD)
     
-    return(np.array(mc))
+    return(np.array(mc), KF_sol)
 
-
-v_end, A_ss = hh_vf_iterate(r_ss, v0, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho)
-
-distr_start = solve_ergodic_distr(A_ss, I, da)
-TT = 100
-rpath = np.repeat(r_ss, TT)
-
-def iterate_rate_guess(rguess, al, Aprod, d, z_ave, v_end, distr_start, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, T, dt):
+def iterate_rate_guess(rguess, al, Aprod, d, z_ave, v_end, distr_start, dVb, dVf, I, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, T, dt):
     ''' Use the iterative approach to find market clearing rate_path
     '''
     
     tol = 1e-3
     KD, _ = solve_firm(rguess, al, Aprod, d, z_ave)
-    lr = 0.5
+    lr = 0.1
     diff = 100
     while diff > tol:
-        errorvec = mit_shock_diff(rguess, Aprod, v_end, distr_start, dVb, dVf, I, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, T, dt, al, d, z_ave)
+        errorvec = mit_shock_diff(rguess, Aprod, v_end, distr_start, dVb, dVf, I, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, T, dt, al, d, z_ave)[0]
         KD = KD + lr * errorvec
         rguess = al * Aprod * (z_ave / KD)**(1-al) - d
         diff = np.max(np.abs(errorvec))
         print(diff)
     return(rguess)
 
+def solve_mit_path(rpath, al, Aprod, d, z_ave, v_end, distr_start, dVb, dVf, I, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, TT, dt):
+    start = time.time()
+    # Solve using Gradient Descent
+    rsol = iterate_rate_guess(rpath, al, Aprod, d, z_ave, v_end, distr_start, dVb, dVf, I, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, TT, dt)
+    end = time.time()
+    iterate_time = end - start
 
+    # Solve using Newton method slide 26 Lecture 2, 90 seconds
+    start = time.time()
+    rsol_newton = optimize.newton(lambda x: mit_shock_diff(x, Aprod, v_end, distr_start, dVb, dVf, I, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, TT, dt, al, d, z_ave)[0], rpath, tol = 1e-3)
+    end = time.time()
+    newton_time = end - start
 
+    _, distr_path = mit_shock_diff(rsol_newton, Aprod, v_end, distr_start, dVb, dVf, I, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, TT, dt, al, d, z_ave)
+    return(distr_path, iterate_time, newton_time, rsol, rsol_newton)
 
-# Productivity decrease
-Aprod = 0.1 - 0.003 * 0.9**np.linspace(0,TT, TT) # TODO: what persistence to use?
+v_end, A_ss = hh_vf_iterate(r_ss, v0, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho)
+
+distr_start = solve_ergodic_distr(A_ss, I, da)
+TT = N-500 # I think this is what he meant by N
+# TODO: long time periods are problematic Causes V to be non increrasing.
+# maaaaaaybe alleviated by lower learning rate
+
+rpath = np.repeat(r_ss, TT)
+
+pers = 0.9 # TODO: what persistence to use?
+# TODO: should I use time instead (he defined it above)
+Aprod = 0.1 - 0.003 * pers**np.linspace(0,TT, TT) 
+#Aprod = np.insert(Aprod, 0, 0.1)
+
+distr_path, it_time, newton_time, rsol, rsol_newton = solve_mit_path(rpath, al, Aprod, d, z_ave, v_end, distr_start, dVb, dVf, I, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, TT, dt)
+
+distr_at_bc_neg = np.sum(np.array(distr_path)[:,[0, 1000]], axis = 1)
+f = open("neg_time.txt", "w")
+f.write(str(it_time) + ", " + str(newton_time))
+f.close()
 
 
 # Productivity increase
-# TODO what happens with share of agents in the lowest asset state? (return distribution)
-Aprod = 0.1 + 0.003 * 0.9**np.linspace(0,TT, TT) # TODO: what persistence to use?
+Aprod = 0.1 + 0.003 * pers**np.linspace(0, TT, TT) 
+distr_path, it_time, newton_time, rsol, rsol_newton = solve_mit_path(rpath, al, Aprod, d, z_ave, v_end, distr_start, dVb, dVf, I, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, TT, dt)
 
-# Solve using Gradient Descent, 151 seconds
-start = time.time()
-rsol = iterate_rate_guess(rpath, al, Aprod, d, z_ave, v_end, distr_start, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, TT, dt)
-end = time.time()
-end - start
+distr_at_bc_pos = np.sum(np.array(distr_path)[:,[0, 1000]], axis = 1)
+f = open("pos_time.txt", "w")
+f.write(str(it_time) + ", " + str(newton_time))
+f.close()
 
-# Solve using Newton method slide 26 Lecture 2, 90 seconds
-start = time.time()
-rsol_newton = optimize.newton(lambda x: mit_shock_diff(x, Aprod, v_end, distr_start, dVb, dVf, I, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, TT, dt, al, d, z_ave), rpath, tol = 1e-3)
-end = time.time()
-end - start
+df = pd.DataFrame([distr_at_bc_neg, distr_at_bc_pos]).T
+df.columns = ["Negative Shock", "Positive Shock"]
+df["time"] = df.index
+df = pd.melt(df, id_vars = "time", var_name = "Shock", value_name = "Share")
 
-
-
-
-
-
-
-df = pd.DataFrame(rsol)
-df = df.reset_index()
-fig = px.line(df, x="index", y = 0, title='Life expectancy in Canada')
+fig = px.line(df, x="time", y = "Share", color = "Shock" , title='Share at borrowing constraint following a shock to TFP')
 fig.show()
+fig.write_image("figures/bcshare.png")
+
+np.array(distr_path).shape
+
 
 
 
