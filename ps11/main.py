@@ -5,13 +5,13 @@ from scipy import optimize
 import os
 # Transition after unexpected decrease in aggregate productivity ("MIT shock")
 
-ga = 2
+ga = 2 # sigma, risk aversion parameter
 rho = 0.05
-rho = 0.005
-d = 0.05
-d = 0.025
-al = 1/3
-Aprod = 0.1
+#rho = 0.005
+d = 0.05 # capital depreciation
+#d = 0.025
+al = 1/3 # alpha
+Aprod = 0.1 
 z1 = 1
 z2 = 2*z1
 z = np.array([z1,z2])
@@ -193,7 +193,7 @@ def check_mc(r, al, Aprod, d, z_ave, v0, dVb, dVf, I, w, z, amin, amax, ga, da, 
 
 path = 'r_ss.txt'
 if not os.path.exists(path):
-  r_ss = optimize.bisect(lambda x: check_mc(x, al, Aprod, d, z_ave, v0, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, a), 0.001, 0.01)
+  r_ss = optimize.bisect(lambda x: check_mc(x, al, Aprod, d, z_ave, v0, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, a), 0.001, 0.05)
   f = open(path, "w")
   f.write(str(r_ss))
   f.close()
@@ -205,3 +205,23 @@ r_ss = float(r_ss)
 
 
 
+# TODO: MIT shocks
+# Increase A with 0.03
+# Decrease A with 0.03
+
+# Solve using iterative approach
+# 1. solve_firm OK!
+# 2. backward iterate HJB
+# 3. forward iterate KF
+# 4. KS Ok!
+# 5. check mc OK!
+    # keep iterating until convergence. Update with some learning rate parameter.
+
+# Solve using Newton method slide 26 Lecture 2
+
+# 1. solve_firm OK!
+# 2. backward iterate HJB
+# 3. forward iterate KF
+# 4. KS OK!
+# 5. check mc OK!
+    # keep iterating until convergence guided by "Newton's method" 
