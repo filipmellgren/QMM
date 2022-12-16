@@ -73,85 +73,91 @@ def solve_firm(r, al, Aprod, d, z_ave):
     w = (1 - al) * Aprod * KD ** al * z_ave ** (-al)
     return(KD, w)
 
-def solve_hh(r, v, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho):
+def solve_hh(r, v_forward, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho):
+    ''' Takes a forward V, and returns another V
+    Can be used for value function iteration to find a fixed V
+    Can also be used to find previous V, given a forward V.
+
+    '''
+    V = np.copy(v_forward)
+    # forward difference
+    dVf[:I - 1, :] = (V[1:I, :] - V[:I - 1, :]) / da
+    
+    dVf[I-1, :] = (w * z + r * amax) ** (-ga)  # will never be used, but impose state constraint a <= amax just in case
+
+    # backward difference
+    # TODO: this is the same as the forward difference in the matlab code. Correct?
+    dVb[1:I, :] = (V[1:I, :] - V[:I - 1, :]) / da
+    dVb[0, :] = (w * z + r * amin) ** (-ga)  # state constraint boundary condition
+
+    # consumption and savings with forward difference
+    cf = dVf ** (-1 / ga)
+    ssf = w * zz + r * aa - cf # TODO: not sure if elementwise or matrix product (aa was transposed by me)
+
+    # consumption and savings with backward difference
+    cb = dVb ** (-1 / ga)
+    ssb = w * zz + r * aa - cb
+
+    # when backward and forward difference is not applicable, we use steady state
+    # below is consumption and derivative of value function at steady state
+    c0 = w * zz + r * aa
+    dV0 = c0 ** (-ga)
+
+    # `dV_Upwind` makes a choice of forward or backward differences based on
+    # the sign of the drift
+    # indicators
+    If = ssf > 0  # positive drift --> forward difference
+    Ib = ssb < 0  # negative drift --> backward difference
+    I0 = (1 - If - Ib)  # at steady state
+
+    # upwind and consumption
+    dV_Upwind = dVf * If + dVb * Ib + dV0 * I0  # important to include third term
+    c = dV_Upwind ** (-1 / ga)
+    u = c ** (1 - ga) / (1 - ga)
+
+    # construct a matrix
+    X = -np.minimum(ssb, 0) / da
+    Y = -np.maximum(ssf, 0) / da + np.minimum(ssb, 0) / da
+    Z = np.maximum(ssf, 0) / da
+
+    # construct matrix A
+    # TODO: Looks like these need extra work.
+    # S = spdiags(Bin,d,m,n) creates an m-by-n sparse matrix S by taking the columns of Bin and placing them along the diagonals specified by d. 
+    # TODO: so ensure A1 is I by I
+    # Should probably use np.diagflat(Y[:,0], 0)
+    # https://numpy.org/doc/stable/reference/generated/numpy.diagflat.html#numpy.diagflat
+    A1 = (
+        np.diag(Y[:, 0])
+        + np.diag(X[1:I, 0], -1)
+        + np.diag(Z[:I - 1, 0], 1)
+    )
+    A2 = (
+        np.diag(Y[:, 1])
+        + np.diag(X[1:I, 1], -1)
+        + np.diag(Z[:I - 1, 1], 1)
+    )
+    # First zero matrices in NE, SW. Then add Aswitch (2000 by 2000)
+    A = np.block([[A1, np.zeros((I, I))], [np.zeros((I, I)), A2]]) + Aswitch
+    
+    # construct matrix B
+    B = (1 / Delta + rho) * np.eye(2 * I) - A
+
+    # stack matrices and solve system of equations
+    u_stacked = np.hstack((u[:, 0], u[:, 1]))
+    V_stacked = np.hstack((V[:, 0], V[:, 1]))
+    b = u_stacked + V_stacked / Delta
+    
+    V_stacked = np.linalg.solve(B, b)
+
+    # update value
+    V = V_stacked.reshape((I, 2), order = "F") 
+    return(V, A)
+
+def hh_vf_iterate(r, v, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho):
     maxit = 100
     for n in range(maxit): 
-        # Solve HH problem
-        V = np.copy(v)
-        
-        # forward difference
-        dVf[:I - 1, :] = (V[1:I, :] - V[:I - 1, :]) / da
-        
-        dVf[I-1, :] = (w * z + r * amax) ** (-ga)  # will never be used, but impose state constraint a <= amax just in case
 
-        # backward difference
-        # TODO: this is the same as the forward difference in the matlab code. Correct?
-        dVb[1:I, :] = (V[1:I, :] - V[:I - 1, :]) / da
-        dVb[0, :] = (w * z + r * amin) ** (-ga)  # state constraint boundary condition
-
-        # consumption and savings with forward difference
-        cf = dVf ** (-1 / ga)
-        ssf = w * zz + r * aa - cf # TODO: not sure if elementwise or matrix product (aa was transposed by me)
-
-        # consumption and savings with backward difference
-        cb = dVb ** (-1 / ga)
-        ssb = w * zz + r * aa - cb
-
-        # when backward and forward difference is not applicable, we use steady state
-        # below is consumption and derivative of value function at steady state
-        c0 = w * zz + r * aa
-        dV0 = c0 ** (-ga)
-
-        # `dV_Upwind` makes a choice of forward or backward differences based on
-        # the sign of the drift
-        # indicators
-        If = ssf > 0  # positive drift --> forward difference
-        Ib = ssb < 0  # negative drift --> backward difference
-        I0 = (1 - If - Ib)  # at steady state
-
-        # upwind and consumption
-        dV_Upwind = dVf * If + dVb * Ib + dV0 * I0  # important to include third term
-        c = dV_Upwind ** (-1 / ga)
-        u = c ** (1 - ga) / (1 - ga)
-
-        # construct a matrix
-        X = -np.minimum(ssb, 0) / da
-        Y = -np.maximum(ssf, 0) / da + np.minimum(ssb, 0) / da
-        Z = np.maximum(ssf, 0) / da
-
-        # construct matrix A
-        # TODO: Looks like these need extra work.
-        # S = spdiags(Bin,d,m,n) creates an m-by-n sparse matrix S by taking the columns of Bin and placing them along the diagonals specified by d. 
-        # TODO: so ensure A1 is I by I
-        # Should probably use np.diagflat(Y[:,0], 0)
-        # https://numpy.org/doc/stable/reference/generated/numpy.diagflat.html#numpy.diagflat
-        A1 = (
-            np.diag(Y[:, 0])
-            + np.diag(X[1:I, 0], -1)
-            + np.diag(Z[:I - 1, 0], 1)
-        )
-        A2 = (
-            np.diag(Y[:, 1])
-            + np.diag(X[1:I, 1], -1)
-            + np.diag(Z[:I - 1, 1], 1)
-        )
-        # First zero matrices in NE, SW. Then add Aswitch (2000 by 2000)
-        A = np.block([[A1, np.zeros((I, I))], [np.zeros((I, I)), A2]]) + Aswitch
-        
-        
-        # construct matrix B
-        B = (1 / Delta + rho) * np.eye(2 * I) - A
-
-        # stack matrices and solve system of equations
-        u_stacked = np.hstack((u[:, 0], u[:, 1]))
-        V_stacked = np.hstack((V[:, 0], V[:, 1]))
-        b = u_stacked + V_stacked / Delta
-        
-        V_stacked = np.linalg.solve(B, b)
-
-        # update value
-        V = V_stacked.reshape((I, 2), order = "F") 
-
+        V, A = solve_hh(r, v, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho)
         # compute critical value
         Vchange = V - v
         v = np.copy(V)
@@ -186,7 +192,7 @@ def solve_distr(A, I, da):
 def check_mc(r, al, Aprod, d, z_ave, v0, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho, a):
     
     KD, w = solve_firm(r, al, Aprod, d, z_ave)
-    A = solve_hh(r, v0, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho)
+    A = hh_vf_iterate(r, v0, dVb, dVf, I, w, z, amin, amax, ga, da, zz, aa, Aswitch, Delta, rho)
     g = solve_distr(A, I, da)
     KS = np.dot(g, np.tile(a*da, 2))
     return(KS - KD)
@@ -208,7 +214,30 @@ r_ss = float(r_ss)
 # TODO: MIT shocks
 # Increase A with 0.03
 # Decrease A with 0.03
+def backward_iterate_hh(v_end):
+    ''' HJB. See slide 22 L2
+    TODO: repeat solve_hh, without iterating. 
+    Worth turning that into something more modular first. 
+    '''
+    for t in reversed(range(T)):
 
+        v_vec[t] = () / rho
+    return(v_vec)
+def mit_shock_diff(r):
+    ''' For a given r, compute excess supply or demand over a transition
+
+    '''
+    mc = []
+    HBJ_sol = backward_iterate_hh()
+    KF_sol = forward_iterate_hh()
+    for t in T:
+        KD, w = solve_firm(r[t], al, Aprod[t], d, z_ave)
+        A = HBJ_sol[t]
+        g = KF_sol[t]
+        KS = np.dot(g, np.tile(a*da, 2))
+        mc.append(KS - KD)
+    
+    return(np.array(mc))
 # Solve using iterative approach
 # 1. solve_firm OK!
 # 2. backward iterate HJB
